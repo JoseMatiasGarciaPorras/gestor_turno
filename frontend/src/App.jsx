@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, RefreshCw } from 'lucide-react';
 import ShiftProductionSheet from './components/ShiftProductionSheet';
-import PartsList from './components/PartsList';
 import AdminCrudView from './components/AdminCrudView';
 import BottomNav from './components/BottomNav';
 
@@ -14,7 +13,7 @@ export default function App() {
   const [shiftSheets, setShiftSheets] = useState([]);
   const [currentSheet, setCurrentSheet] = useState(null);
   
-  // Vistas principales: 'sheet' | 'parts' | 'crud'
+  // Vistas principales: 'sheet' | 'crud'
   const [activeTab, setActiveTab] = useState('sheet'); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -257,10 +256,6 @@ export default function App() {
           onSaveSheet={handleSaveSheet}
           onOpenHtmlReport={handleOpenHtmlReport}
         />
-      )}
-
-      {activeTab === 'parts' && (
-        <PartsList parts={parts} onCreatePart={handleCreatePart} />
       )}
 
       {activeTab === 'crud' && (

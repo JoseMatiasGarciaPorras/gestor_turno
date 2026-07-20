@@ -1,11 +1,12 @@
 import React from 'react';
-import { ClipboardList, Package, Settings } from 'lucide-react';
+import { ClipboardList, Settings } from 'lucide-react';
 
 export default function BottomNav({ activeTab, setActiveTab }) {
   return (
     <nav className="bottom-nav">
       <button 
         className={`nav-item ${activeTab === 'sheet' ? 'active' : ''}`}
+        style={{ width: '50%' }}
         onClick={() => setActiveTab('sheet')}
       >
         <ClipboardList />
@@ -13,15 +14,8 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       </button>
 
       <button 
-        className={`nav-item ${activeTab === 'parts' ? 'active' : ''}`}
-        onClick={() => setActiveTab('parts')}
-      >
-        <Package />
-        <span>Piezas</span>
-      </button>
-
-      <button 
         className={`nav-item ${activeTab === 'crud' ? 'active' : ''}`}
+        style={{ width: '50%' }}
         onClick={() => setActiveTab('crud')}
       >
         <Settings />
