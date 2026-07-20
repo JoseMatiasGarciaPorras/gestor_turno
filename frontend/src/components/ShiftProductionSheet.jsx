@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
-import { Plus, Trash2, Printer, Save, Calendar, UserCheck, Cpu, Package, Check, AlertCircle } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Trash2, Printer, Save, Calendar, Camera, Share2, Download, X } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 export default function ShiftProductionSheet({ 
   machines, operators, parts, currentSheet, onSaveSheet, onOpenHtmlReport 
 }) {
+  const printSheetRef = useRef(null);
+
   // Header controls
   const [productionDate, setProductionDate] = useState(new Date().toISOString().split('T')[0]);
   const [shiftName, setShiftName] = useState('Tarde');
   const [supervisor, setSupervisor] = useState('Matias');
   const [incidentsNotes, setIncidentsNotes] = useState('Operación en planta sin novedades.');
+  const [generatingImage, setGeneratingImage] = useState(false);
 
   // Production rows
   const [items, setItems] = useState([
@@ -47,7 +51,6 @@ export default function ShiftProductionSheet({
     }
   ]);
 
-  // Add new machine production row
   const addRow = (isMontaje = false) => {
     const defaultMac = machines[0]?.name || 'ENGEL 300';
     const defaultPart = parts[0]?.references || '90100108';
@@ -76,8 +79,6 @@ export default function ShiftProductionSheet({
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        
-        // Auto-fill operator details if operator selected
         if (field === 'operator_name') {
           const matchedOp = operators.find(o => o.name === value);
           if (matchedOp) {
@@ -100,6 +101,70 @@ export default function ShiftProductionSheet({
     }));
   };
 
+  // Generar Imagen PNG
+  const handleGenerateImage = async () => {
+    if (!printSheetRef.current) return;
+    setGeneratingImage(true);
+
+    try {
+      const element = printSheetRef.current;
+      
+      // Temporarily display element offscreen for rendering
+      element.style.display = 'block';
+      
+      const canvas = await html2canvas(element, {
+        scale: 2, // Alta definición para leer números claramente
+        useCORS: true,
+        backgroundColor: '#ffffff'
+      });
+
+      element.style.display = 'none';
+
+      const image = canvas.toDataURL("image/png");
+      const filename = `parte_produccion_${productionDate}_${shiftName}.png`;
+
+      // Intentar Web Share API nativa en teléfono móvil (ej. enviar por WhatsApp)
+      if (navigator.canShare && navigator.share) {
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            const file = new File([blob], filename, { type: 'image/png' });
+            if (navigator.canShare({ files: [file] })) {
+              try {
+                await navigator.share({
+                  files: [file],
+                  title: `Parte de Producción - ${productionDate}`,
+                  text: `Parte de producción del turno ${shiftName}. Supervisor: ${supervisor}`
+                });
+                setGeneratingImage(false);
+                return;
+              } catch (shareErr) {
+                console.log("Compartir cancelado:", shareErr);
+              }
+            }
+          }
+          downloadDataUrl(image, filename);
+        });
+      } else {
+        downloadDataUrl(image, filename);
+      }
+    } catch (err) {
+      console.error("Error generando imagen PNG:", err);
+      alert("No se pudo generar la imagen. Inténtelo de nuevo.");
+    } finally {
+      setGeneratingImage(false);
+    }
+  };
+
+  const downloadDataUrl = (dataUrl, filename) => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    alert(`¡Imagen PNG generada y guardada como "${filename}"! Ya puedes enviarla a tu supervisor.`);
+  };
+
   const handleSave = () => {
     const payload = {
       production_date: productionDate,
@@ -117,13 +182,11 @@ export default function ShiftProductionSheet({
         is_montaje: item.is_montaje
       }))
     };
-
     onSaveSheet(payload);
   };
 
   const plantaItems = items.filter(i => !i.is_montaje);
   const montajeItems = items.filter(i => i.is_montaje);
-
   const totalOk = items.reduce((acc, i) => acc + (parseInt(i.quantity_ok) || 0), 0);
   const totalKo = items.reduce((acc, i) => acc + (parseInt(i.quantity_ko) || 0), 0);
 
@@ -131,22 +194,24 @@ export default function ShiftProductionSheet({
     <div style={{ marginTop: '10px' }}>
       {/* SHIFT CONTROL HEADER */}
       <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: 'var(--radius-lg)', marginBottom: '16px', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
           <h2 style={{ fontSize: '1.15rem', fontWeight: 'bold', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Calendar size={20} /> Parte de Producción por Turno
           </h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {currentSheet?.id && (
-              <button 
-                className="btn btn-secondary" 
-                style={{ padding: '6px 12px', minHeight: '36px', fontSize: '0.8rem', background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' }}
-                onClick={() => onOpenHtmlReport(currentSheet.id)}
-              >
-                <Printer size={15} /> Imprimir Hoja HTML
-              </button>
-            )}
-            <button className="btn btn-primary" style={{ padding: '6px 14px', minHeight: '36px', fontSize: '0.82rem' }} onClick={handleSave}>
-              <Save size={15} /> Guardar Parte
+          
+          {/* ACCIONES DE IMAGEN & GUARDADO */}
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
+            <button 
+              className="btn btn-success" 
+              style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.85rem', fontWeight: 'bold' }}
+              onClick={handleGenerateImage}
+              disabled={generatingImage}
+            >
+              <Camera size={18} /> {generatingImage ? 'Generando...' : '📷 Enviar Imagen a Supervisor'}
+            </button>
+
+            <button className="btn btn-primary" style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.85rem' }} onClick={handleSave}>
+              <Save size={16} /> Guardar
             </button>
           </div>
         </div>
@@ -179,7 +244,7 @@ export default function ShiftProductionSheet({
         </div>
       </div>
 
-      {/* TOTAL METRICS SUMMARY */}
+      {/* TOTAL METRICS */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
         <div className="pill-card available" style={{ flex: 1 }}>
           <span className="pill-num" style={{ fontSize: '1.4rem' }}>{totalOk}</span>
@@ -205,7 +270,6 @@ export default function ShiftProductionSheet({
         {plantaItems.map((item) => (
           <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
             
-            {/* ROW TOP: MACHINE & SIDE TOGGLE */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
                 <select 
@@ -242,7 +306,6 @@ export default function ShiftProductionSheet({
               </button>
             </div>
 
-            {/* ROW MIDDLE: PART REFERENCE & OPERATOR */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label className="form-label" style={{ fontSize: '0.72rem' }}>REFERENCIA PIEZA</label>
@@ -273,9 +336,7 @@ export default function ShiftProductionSheet({
               </div>
             </div>
 
-            {/* ROW BOTTOM: PRODUCTION OK / KO COUNTERS WITH QUICK TOUCH BUTTONS */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(0,0,0,0.25)', padding: '10px', borderRadius: 'var(--radius-md)' }}>
-              {/* OK COUNTER */}
               <div>
                 <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', marginBottom: '4px' }}>
                   PRODUCCIÓN OK
@@ -293,7 +354,6 @@ export default function ShiftProductionSheet({
                 </div>
               </div>
 
-              {/* KO COUNTER */}
               <div>
                 <div style={{ fontSize: '0.75rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '4px' }}>
                   SCRAP / KO
@@ -365,6 +425,91 @@ export default function ShiftProductionSheet({
             </div>
           </div>
         ))}
+      </div>
+
+      {/* PLANTILLA OCULTA / ESTILIZADA EN FORMATO PAPEL DE PLANTA PARA CAPTURA HTML2CANVAS */}
+      <div 
+        ref={printSheetRef}
+        style={{ 
+          display: 'none', 
+          width: '800px', 
+          padding: '24px', 
+          background: '#ffffff', 
+          color: '#000000', 
+          fontFamily: 'Arial, sans-serif',
+          border: '3px solid #000000',
+          margin: '0 auto'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #000', paddingBottom: '8px', marginBottom: '12px', fontSize: '14px', fontWeight: 'bold' }}>
+          <div>DIA / FECHA: <span style={{ fontWeight: 'normal' }}>{productionDate}</span></div>
+          <div>TURNO: <span style={{ fontWeight: 'normal' }}>{shiftName}</span></div>
+          <div>ENCARGADO: <span style={{ fontWeight: 'normal' }}>{supervisor}</span></div>
+        </div>
+
+        <div style={{ background: '#000', color: '#fff', padding: '4px 8px', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase', marginBottom: '6px' }}>
+          PRODUCCIÓN MÁQUINAS EN PLANTA
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '16px' }}>
+          <thead>
+            <tr style={{ background: '#e2e8f0' }}>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>MÁQUINA</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>LADO</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>REFERENCIA</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD OK</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD KO</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>Nº OP</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>NOMBRE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plantaItems.map((i, idx) => (
+              <tr key={idx}>
+                <td style={{ border: '1px solid #000', padding: '5px', fontWeight: 'bold' }}>{i.machine_name}</td>
+                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{i.machine_side}</td>
+                <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{i.part_reference}</td>
+                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{i.quantity_ok}</td>
+                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{i.quantity_ko > 0 ? i.quantity_ko : ''}</td>
+                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{i.operator_number}</td>
+                <td style={{ border: '1px solid #000', padding: '5px' }}>{i.operator_name}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {montajeItems.length > 0 && (
+          <>
+            <div style={{ background: '#000', color: '#fff', padding: '4px 8px', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase', marginBottom: '6px' }}>
+              MONTAJE
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '16px' }}>
+              <thead>
+                <tr style={{ background: '#e2e8f0' }}>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>REFERENCIA</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD OK</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>Nº OP</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>NOMBRE</th>
+                </tr>
+              </thead>
+              <tbody>
+                {montajeItems.map((i, idx) => (
+                  <tr key={idx}>
+                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{i.part_reference}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{i.quantity_ok}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{i.operator_number}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px' }}>{i.operator_name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        <div style={{ border: '1px solid #000', padding: '8px', fontSize: '12px', background: '#f8fafc' }}>
+          <strong>INCIDENCIAS / FALTA PERSONAL O NOTAS:</strong><br/>
+          {incidentsNotes || 'Ninguna.'}
+        </div>
       </div>
     </div>
   );
