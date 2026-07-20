@@ -1,26 +1,64 @@
 import React, { useState } from 'react';
-import { Package, Plus, Tag } from 'lucide-react';
+import { Package, Plus, Tag, Trash2 } from 'lucide-react';
 
 export default function PartsList({ parts, onCreatePart }) {
   const [name, setName] = useState('');
-  const [references, setReferences] = useState('');
   const [description, setDescription] = useState('');
   const [showForm, setShowForm] = useState(false);
 
+  // Structured References
+  const [referencesList, setReferencesList] = useState([
+    { code: '', side_type: 'IZQ' },
+    { code: '', side_type: 'DCH' }
+  ]);
+
+  const addReferenceRow = (type = 'IZQ') => {
+    setReferencesList([...referencesList, { code: '', side_type: type }]);
+  };
+
+  const removeReferenceRow = (index) => {
+    setReferencesList(referencesList.filter((_, idx) => idx !== index));
+  };
+
+  const updateReferenceRow = (index, field, value) => {
+    setReferencesList(referencesList.map((ref, idx) => {
+      if (idx === index) {
+        return { ...ref, [field]: value };
+      }
+      return ref;
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!name.trim() || !references.trim()) return;
+    if (!name.trim()) return;
+
+    const validRefs = referencesList
+      .filter(r => r.code.trim() !== '')
+      .map(r => ({ code: r.code.trim().toUpperCase(), side_type: r.side_type }));
 
     onCreatePart({
       name: name.trim(),
-      references: references.trim().toUpperCase(),
-      description: description.trim()
+      description: description.trim(),
+      references: validRefs
     });
 
     setName('');
-    setReferences('');
     setDescription('');
+    setReferencesList([
+      { code: '', side_type: 'IZQ' },
+      { code: '', side_type: 'DCH' }
+    ]);
     setShowForm(false);
+  };
+
+  const getSideColor = (type) => {
+    switch(type) {
+      case 'IZQ': return { bg: 'rgba(59, 130, 246, 0.2)', text: '#60a5fa', border: 'rgba(59, 130, 246, 0.4)' };
+      case 'DCH': return { bg: 'rgba(245, 158, 11, 0.2)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.4)' };
+      case 'Única': return { bg: 'rgba(16, 185, 129, 0.2)', text: '#10b981', border: 'rgba(16, 185, 129, 0.4)' };
+      default: return { bg: 'rgba(168, 85, 247, 0.2)', text: '#c084fc', border: 'rgba(168, 85, 247, 0.4)' };
+    }
   };
 
   return (
@@ -47,7 +85,7 @@ export default function PartsList({ parts, onCreatePart }) {
             <input 
               type="text" 
               className="form-input" 
-              placeholder="Ej. Eje de Transmisión Al-7075" 
+              placeholder="Ej. Espejo Retrovisor Lateral" 
               value={name} 
               onChange={(e) => setName(e.target.value)} 
               required 
@@ -55,25 +93,59 @@ export default function PartsList({ parts, onCreatePart }) {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Referencias Alfanuméricas Únicas</label>
+            <label className="form-label">Descripción (Opcional)</label>
             <input 
               type="text" 
               className="form-input" 
-              placeholder="Ej. REF-A100, REF-A101B" 
-              value={references} 
-              onChange={(e) => setReferences(e.target.value)} 
-              required 
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Descripción / Especificaciones (Opcional)</label>
-            <textarea 
-              className="form-textarea" 
-              placeholder="Ej. Plano técnico #402, tolerancias ±0.05mm" 
+              placeholder="Ej. Plano técnico #402" 
               value={description} 
               onChange={(e) => setDescription(e.target.value)}
             />
+          </div>
+
+          <div style={{ marginBottom: '14px', borderTop: '1px border-color', paddingTop: '10px' }}>
+            <label className="form-label" style={{ fontWeight: 'bold', color: '#60a5fa' }}>
+              REFERENCIAS DE LA PIEZA ({referencesList.length})
+            </label>
+
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', minHeight: '32px' }} onClick={() => addReferenceRow('IZQ')}>+ Referencia IZQ</button>
+              <button type="button" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', minHeight: '32px' }} onClick={() => addReferenceRow('DCH')}>+ Referencia DCH</button>
+              <button type="button" className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem', minHeight: '32px' }} onClick={() => addReferenceRow('Única')}>+ Ref Única</button>
+            </div>
+
+            {referencesList.map((ref, rIdx) => (
+              <div key={rIdx} style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
+                <select 
+                  className="form-select" 
+                  style={{ width: '110px', minHeight: '40px', fontSize: '0.8rem', fontWeight: 'bold' }}
+                  value={ref.side_type}
+                  onChange={(e) => updateReferenceRow(rIdx, 'side_type', e.target.value)}
+                >
+                  <option value="IZQ">IZQ (Izquierda)</option>
+                  <option value="DCH">DCH (Derecha)</option>
+                  <option value="Única">Única</option>
+                  <option value="Variante A">Variante A</option>
+                  <option value="Variante B">Variante B</option>
+                </select>
+
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  style={{ flex: 1, minHeight: '40px', fontFamily: 'monospace', fontWeight: 'bold' }}
+                  placeholder="Ej. L381154" 
+                  value={ref.code} 
+                  onChange={(e) => updateReferenceRow(rIdx, 'code', e.target.value)}
+                  required
+                />
+
+                {referencesList.length > 1 && (
+                  <button type="button" className="btn btn-danger" style={{ minHeight: '40px', padding: '0 8px' }} onClick={() => removeReferenceRow(rIdx)}>
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
 
           <button type="submit" className="btn btn-success" style={{ width: '100%' }}>
@@ -93,12 +165,37 @@ export default function PartsList({ parts, onCreatePart }) {
               <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontWeight: '600', fontSize: '1rem', color: '#ffffff' }}>{part.name}</span>
               </div>
+              
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '2px' }}>
                 <Tag size={13} color="#a78bfa" />
-                <span style={{ fontSize: '0.8rem', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '2px 8px', borderRadius: '12px', border: '1px solid rgba(168, 85, 247, 0.3)' }}>
-                  Ref: {part.references}
-                </span>
+                {part.references_list && part.references_list.length > 0 ? (
+                  part.references_list.map((r, rIdx) => {
+                    const styleColor = getSideColor(r.side_type);
+                    return (
+                      <span 
+                        key={rIdx} 
+                        style={{ 
+                          fontSize: '0.78rem', 
+                          fontWeight: 'bold', 
+                          fontFamily: 'monospace',
+                          background: styleColor.bg, 
+                          color: styleColor.text, 
+                          border: `1px solid ${styleColor.border}`, 
+                          padding: '2px 8px', 
+                          borderRadius: '12px' 
+                        }}
+                      >
+                        {r.code} ({r.side_type})
+                      </span>
+                    );
+                  })
+                ) : (
+                  <span style={{ fontSize: '0.78rem', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '2px 8px', borderRadius: '12px' }}>
+                    Ref: {part.references}
+                  </span>
+                )}
               </div>
+
               {part.description && (
                 <p style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '4px' }}>{part.description}</p>
               )}

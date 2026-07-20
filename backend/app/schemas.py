@@ -17,18 +17,32 @@ class OperatorResponse(OperatorBase):
     class Config:
         from_attributes = True
 
+# --- PART REFERENCE SCHEMAS ---
+class PartReferenceBase(BaseModel):
+    code: str
+    side_type: Optional[str] = "Única"  # IZQ, DCH, Única, Variante A, Variante B
+
+class PartReferenceCreate(PartReferenceBase):
+    pass
+
+class PartReferenceResponse(PartReferenceBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
 # --- PART SCHEMAS ---
 class PartBase(BaseModel):
     name: str
-    references: str
     description: Optional[str] = None
 
 class PartCreate(PartBase):
-    pass
+    references: List[PartReferenceCreate] = []
 
 class PartResponse(PartBase):
     id: int
     created_at: datetime
+    references_list: List[PartReferenceResponse] = []
 
     class Config:
         from_attributes = True
@@ -58,7 +72,7 @@ class MachineResponse(MachineBase):
 class ProductionItemBase(BaseModel):
     machine_id: Optional[int] = None
     machine_name_manual: Optional[str] = None
-    machine_side: Optional[str] = "IZQ"  # IZQ, DCH
+    machine_side: Optional[str] = "IZQ"
     
     part_id: Optional[int] = None
     part_reference_manual: Optional[str] = None

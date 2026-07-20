@@ -14,7 +14,27 @@ export default function ShiftProductionSheet({
   const [incidentsNotes, setIncidentsNotes] = useState('Operación en planta sin novedades.');
   const [generatingImage, setGeneratingImage] = useState(false);
 
-  // Production rows
+  // Extraer lista completa de referencias clasificadas para selectores rápidos
+  const availableReferences = [];
+  parts.forEach(p => {
+    if (p.references_list && p.references_list.length > 0) {
+      p.references_list.forEach(r => {
+        availableReferences.push({
+          part_name: p.name,
+          code: r.code,
+          side_type: r.side_type || 'Única'
+        });
+      });
+    } else if (p.references) {
+      availableReferences.push({
+        part_name: p.name,
+        code: p.references,
+        side_type: 'Única'
+      });
+    }
+  });
+
+  // Default rows
   const [items, setItems] = useState([
     {
       id: Date.now(),
@@ -53,14 +73,14 @@ export default function ShiftProductionSheet({
 
   const addRow = (isMontaje = false) => {
     const defaultMac = machines[0]?.name || 'ENGEL 300';
-    const defaultPart = parts[0]?.references || '90100108';
+    const defaultRefObj = availableReferences[0] || { code: '90100108', side_type: 'IZQ' };
     const defaultOp = operators[0] || { name: 'Natalia', operator_number: '247' };
 
     const newRow = {
       id: Date.now(),
       machine_name: defaultMac,
-      machine_side: 'IZQ',
-      part_reference: defaultPart,
+      machine_side: defaultRefObj.side_type === 'DCH' ? 'DCH' : 'IZQ',
+      part_reference: defaultRefObj.code,
       quantity_ok: 0,
       quantity_ko: 0,
       operator_number: defaultOp.operator_number,
@@ -79,12 +99,22 @@ export default function ShiftProductionSheet({
     setItems(items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
+        
         if (field === 'operator_name') {
           const matchedOp = operators.find(o => o.name === value);
           if (matchedOp) {
             updated.operator_number = matchedOp.operator_number;
           }
         }
+
+        // Auto-detectar y cambiar Lado de la máquina (IZQ / DCH) al seleccionar referencia
+        if (field === 'part_reference') {
+          const matchedRef = availableReferences.find(r => r.code === value);
+          if (matchedRef && (matchedRef.side_type === 'IZQ' || matchedRef.side_type === 'DCH')) {
+            updated.machine_side = matchedRef.side_type;
+          }
+        }
+
         return updated;
       }
       return item;
@@ -108,12 +138,10 @@ export default function ShiftProductionSheet({
 
     try {
       const element = printSheetRef.current;
-      
-      // Temporarily display element offscreen for rendering
       element.style.display = 'block';
       
       const canvas = await html2canvas(element, {
-        scale: 2, // Alta definición para leer números claramente
+        scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff'
       });
@@ -123,7 +151,6 @@ export default function ShiftProductionSheet({
       const image = canvas.toDataURL("image/png");
       const filename = `parte_produccion_${productionDate}_${shiftName}.png`;
 
-      // Intentar Web Share API nativa en teléfono móvil (ej. enviar por WhatsApp)
       if (navigator.canShare && navigator.share) {
         canvas.toBlob(async (blob) => {
           if (blob) {
@@ -137,9 +164,7 @@ export default function ShiftProductionSheet({
                 });
                 setGeneratingImage(false);
                 return;
-              } catch (shareErr) {
-                console.log("Compartir cancelado:", shareErr);
-              }
+              } catch (shareErr) {}
             }
           }
           downloadDataUrl(image, filename);
@@ -149,7 +174,7 @@ export default function ShiftProductionSheet({
       }
     } catch (err) {
       console.error("Error generando imagen PNG:", err);
-      alert("No se pudo generar la imagen. Inténtelo de nuevo.");
+      alert("No se pudo generar la imagen.");
     } finally {
       setGeneratingImage(false);
     }
@@ -162,7 +187,7 @@ export default function ShiftProductionSheet({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    alert(`¡Imagen PNG generada y guardada como "${filename}"! Ya puedes enviarla a tu supervisor.`);
+    alert(`¡Imagen PNG guardada como "${filename}"!`);
   };
 
   const handleSave = () => {
@@ -192,14 +217,13 @@ export default function ShiftProductionSheet({
 
   return (
     <div style={{ marginTop: '10px' }}>
-      {/* SHIFT CONTROL HEADER */}
+      {/* HEADER */}
       <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: 'var(--radius-lg)', marginBottom: '16px', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
           <h2 style={{ fontSize: '1.15rem', fontWeight: 'bold', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Calendar size={20} /> Parte de Producción por Turno
           </h2>
           
-          {/* ACCIONES DE IMAGEN & GUARDADO */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
             <button 
               className="btn btn-success" 
@@ -240,11 +264,11 @@ export default function ShiftProductionSheet({
 
         <div style={{ marginTop: '12px' }}>
           <label className="form-label">INCIDENCIAS / FALTA PERSONAL O NOTAS</label>
-          <input type="text" className="form-input" placeholder="Escribir observaciones o falta de personal..." value={incidentsNotes} onChange={(e) => setIncidentsNotes(e.target.value)} />
+          <input type="text" className="form-input" placeholder="Escribir observaciones..." value={incidentsNotes} onChange={(e) => setIncidentsNotes(e.target.value)} />
         </div>
       </div>
 
-      {/* TOTAL METRICS */}
+      {/* METRIC PILLS */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
         <div className="pill-card available" style={{ flex: 1 }}>
           <span className="pill-num" style={{ fontSize: '1.4rem' }}>{totalOk}</span>
@@ -256,7 +280,7 @@ export default function ShiftProductionSheet({
         </div>
       </div>
 
-      {/* SECCIÓN MÁQUINAS EN PLANTA */}
+      {/* MÁQUINAS EN PLANTA */}
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Cpu size={18} color="#60a5fa" /> PRODUCCIÓN MÁQUINAS EN PLANTA ({plantaItems.length})
@@ -306,17 +330,33 @@ export default function ShiftProductionSheet({
               </button>
             </div>
 
+            {/* SELECTOR DE REFERENCIAS ESTRUCTURADAS CON AUTO-DETECCIÓN DE LADO */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
                 <label className="form-label" style={{ fontSize: '0.72rem' }}>REFERENCIA PIEZA</label>
-                <input 
-                  type="text"
-                  className="form-input" 
-                  style={{ minHeight: '40px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc' }}
-                  placeholder="Ej. 90100108"
-                  value={item.part_reference}
-                  onChange={(e) => updateRow(item.id, 'part_reference', e.target.value)}
-                />
+                {availableReferences.length > 0 ? (
+                  <select 
+                    className="form-select"
+                    style={{ minHeight: '40px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc' }}
+                    value={item.part_reference}
+                    onChange={(e) => updateRow(item.id, 'part_reference', e.target.value)}
+                  >
+                    {availableReferences.map((refObj, refIdx) => (
+                      <option key={refIdx} value={refObj.code}>
+                        {refObj.code} ({refObj.side_type})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input 
+                    type="text"
+                    className="form-input" 
+                    style={{ minHeight: '40px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc' }}
+                    placeholder="Ej. 90100108"
+                    value={item.part_reference}
+                    onChange={(e) => updateRow(item.id, 'part_reference', e.target.value)}
+                  />
+                )}
               </div>
 
               <div>
@@ -338,9 +378,7 @@ export default function ShiftProductionSheet({
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(0,0,0,0.25)', padding: '10px', borderRadius: 'var(--radius-md)' }}>
               <div>
-                <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', marginBottom: '4px' }}>
-                  PRODUCCIÓN OK
-                </div>
+                <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', marginBottom: '4px' }}>PRODUCCIÓN OK</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <input 
                     type="number" 
@@ -355,9 +393,7 @@ export default function ShiftProductionSheet({
               </div>
 
               <div>
-                <div style={{ fontSize: '0.75rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '4px' }}>
-                  SCRAP / KO
-                </div>
+                <div style={{ fontSize: '0.75rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '4px' }}>SCRAP / KO</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <input 
                     type="number" 
@@ -375,7 +411,7 @@ export default function ShiftProductionSheet({
         ))}
       </div>
 
-      {/* SECCIÓN MONTAJE */}
+      {/* MONTAJE */}
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Package size={18} color="#a78bfa" /> MONTAJE ({montajeItems.length})
@@ -427,7 +463,7 @@ export default function ShiftProductionSheet({
         ))}
       </div>
 
-      {/* PLANTILLA OCULTA / ESTILIZADA EN FORMATO PAPEL DE PLANTA PARA CAPTURA HTML2CANVAS */}
+      {/* PLANTILLA OCULTA PARA CAPTURA HTML2CANVAS */}
       <div 
         ref={printSheetRef}
         style={{ 

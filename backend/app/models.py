@@ -31,20 +31,31 @@ class Part(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    references = Column(String(255), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    references_list = relationship("PartReference", back_populates="part", cascade="all, delete-orphan")
     production_items = relationship("ProductionItem", back_populates="part")
+
+class PartReference(Base):
+    __tablename__ = "part_references"
+
+    id = Column(Integer, primary_key=True, index=True)
+    part_id = Column(Integer, ForeignKey("parts.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(100), index=True, nullable=False)
+    side_type = Column(String(30), default="Única")  # IZQ, DCH, Única, Variante A, Variante B
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    part = relationship("Part", back_populates="references_list")
 
 class ShiftSheet(Base):
     __tablename__ = "shift_sheets"
 
     id = Column(Integer, primary_key=True, index=True)
     production_date = Column(Date, default=date.today, nullable=False)
-    shift_name = Column(String(50), nullable=False)  # Tarde, Mañana, Noche
-    supervisor = Column(String(100), nullable=False) # Matias
-    incidents_notes = Column(Text, nullable=True)     # Incidencias / Falta personal
+    shift_name = Column(String(50), nullable=False)
+    supervisor = Column(String(100), nullable=False)
+    incidents_notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     items = relationship("ProductionItem", back_populates="shift_sheet", cascade="all, delete-orphan")
@@ -57,10 +68,10 @@ class ProductionItem(Base):
     
     machine_id = Column(Integer, ForeignKey("machines.id"), nullable=True)
     machine_name_manual = Column(String(100), nullable=True)
-    machine_side = Column(String(10), default="IZQ")  # IZQ, DCH
+    machine_side = Column(String(10), default="IZQ")
     
     part_id = Column(Integer, ForeignKey("parts.id"), nullable=True)
-    part_reference_manual = Column(String(100), nullable=True) # Referencia (ej. 90100108, L381154)
+    part_reference_manual = Column(String(100), nullable=True)
     
     quantity_ok = Column(Integer, default=0, nullable=False)
     quantity_ko = Column(Integer, default=0, nullable=False)

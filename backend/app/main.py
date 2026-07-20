@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, date
 
 from app.database import engine, Base, get_db
-from app.models import Machine, Operator, Part, ShiftSheet, ProductionItem
+from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem
 from app.schemas import (
     MachineCreate, MachineResponse, MachineStatusUpdate,
     OperatorCreate, OperatorResponse,
@@ -21,7 +21,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Gestor de Turnos y Planta de Producción API",
     description="API RESTful Mobile-First para control de Máquinas, Operarios, Piezas y Partes de Producción Diarios.",
-    version="3.0.0"
+    version="3.5.0"
 )
 
 app.add_middleware(
@@ -70,65 +70,30 @@ def seed_initial_data(db: Session):
         db.commit()
 
     if db.query(Part).count() == 0:
-        parts = [
-            Part(name="Pieza 90100108", references="90100108"),
-            Part(name="Pieza 90100109", references="90100109"),
-            Part(name="Pieza L381154", references="L381154"),
-            Part(name="Pieza L381153", references="L381153"),
-            Part(name="Pieza L700038", references="L700038"),
-            Part(name="Pieza L700032", references="L700032"),
-            Part(name="Pieza IS6120080-02", references="IS6120080-02"),
-            Part(name="Pieza 90094508", references="90094508"),
-            Part(name="Pieza 1787017", references="1787017"),
-            Part(name="Pieza L802189", references="L802189"),
-            Part(name="Pieza L802190", references="L802190"),
-            Part(name="Pieza 1603162", references="1603162"),
-            Part(name="Pieza 1603163", references="1603163"),
-            Part(name="Pieza 9018687S", references="9018687S"),
-            Part(name="Pieza L341471", references="L341471"),
-            Part(name="Pieza L341472", references="L341472"),
-            Part(name="Pieza 90093181", references="90093181"),
-            Part(name="Pieza LF40798", references="LF40798"),
-            Part(name="Pieza LF40799", references="LF40799"),
-            Part(name="Pieza LD97531", references="LD97531"),
-            Part(name="Pieza LD97532", references="LD97532"),
-            Part(name="Pieza LFS5903", references="LFS5903"),
-            Part(name="Pieza LFS5908", references="LFS5908"),
-        ]
-        db.add_all(parts)
+        p1 = Part(name="Conjunto Espejo Retrovisor NS1500", description="Par de espejos laterales")
+        db.add(p1)
         db.commit()
+        db.refresh(p1)
 
-    if db.query(ShiftSheet).count() == 0:
-        # Ejemplo exacto de la hoja física
-        sheet = ShiftSheet(
-            production_date=date(2026, 7, 20),
-            shift_name="Tarde",
-            supervisor="Matias",
-            incidents_notes="Operación normal en planta."
-        )
-        db.add(sheet)
+        r1 = PartReference(part_id=p1.id, code="L381154", side_type="IZQ")
+        r2 = PartReference(part_id=p1.id, code="L381153", side_type="DCH")
+
+        p2 = Part(name="Moldura Frontal ENGEL 550", description="Moldura exterior limpia")
+        db.add(p2)
         db.commit()
-        db.refresh(sheet)
+        db.refresh(p2)
 
-        rb1000 = db.query(Machine).filter(Machine.name == "RB1000").first()
-        op_natalia = db.query(Operator).filter(Operator.name == "Natalia").first()
-        part_90100108 = db.query(Part).filter(Part.references == "90100108").first()
+        r3 = PartReference(part_id=p2.id, code="L802189", side_type="IZQ")
+        r4 = PartReference(part_id=p2.id, code="L802190", side_type="DCH")
 
-        item1 = ProductionItem(
-            shift_sheet_id=sheet.id,
-            machine_id=rb1000.id if rb1000 else None,
-            machine_name_manual="RB1000",
-            machine_side="IZQ",
-            part_id=part_90100108.id if part_90100108 else None,
-            part_reference_manual="90100108",
-            quantity_ok=106,
-            quantity_ko=0,
-            operator_id=op_natalia.id if op_natalia else None,
-            operator_name_manual="Natalia",
-            operator_number_manual="247",
-            is_montaje=False
-        )
-        db.add(item1)
+        p3 = Part(name="Placa Base 90100108", description="Referencia única")
+        db.add(p3)
+        db.commit()
+        db.refresh(p3)
+
+        r5 = PartReference(part_id=p3.id, code="90100108", side_type="Única")
+
+        db.add_all([r1, r2, r3, r4, r5])
         db.commit()
 
 @app.on_event("startup")
@@ -178,35 +143,51 @@ def delete_operator(operator_id: int, db: Session = Depends(get_db)):
     db.commit()
     return None
 
-# --- PIEZAS ---
+# --- PIEZAS Y REFERENCIAS ---
 
 @app.get("/api/parts", response_model=List[PartResponse])
 def get_parts(db: Session = Depends(get_db)):
-    return db.query(Part).order_by(Part.name.asc()).all()
+    return db.query(Part).options(joinedload(Part.references_list)).order_by(Part.name.asc()).all()
 
 @app.post("/api/parts", response_model=PartResponse, status_code=status.HTTP_201_CREATED)
 def create_part(part: PartCreate, db: Session = Depends(get_db)):
-    existing = db.query(Part).filter(Part.references == part.references).first()
-    if existing:
-        raise HTTPException(status_code=400, detail=f"Ya existe una pieza registrada con la referencia '{part.references}'.")
-    
-    db_part = Part(name=part.name, references=part.references, description=part.description)
+    db_part = Part(name=part.name, description=part.description)
     db.add(db_part)
     db.commit()
     db.refresh(db_part)
-    return db_part
+
+    for ref in part.references:
+        db_ref = PartReference(
+            part_id=db_part.id,
+            code=ref.code.strip().upper(),
+            side_type=ref.side_type or "Única"
+        )
+        db.add(db_ref)
+
+    db.commit()
+    return db.query(Part).options(joinedload(Part.references_list)).filter(Part.id == db_part.id).first()
 
 @app.put("/api/parts/{part_id}", response_model=PartResponse)
 def update_part(part_id: int, payload: PartCreate, db: Session = Depends(get_db)):
     part = db.query(Part).filter(Part.id == part_id).first()
     if not part:
         raise HTTPException(status_code=404, detail="Pieza no encontrada.")
+    
     part.name = payload.name
-    part.references = payload.references
     part.description = payload.description
+
+    # Reemplazar lista de referencias
+    db.query(PartReference).filter(PartReference.part_id == part_id).delete()
+    for ref in payload.references:
+        db_ref = PartReference(
+            part_id=part.id,
+            code=ref.code.strip().upper(),
+            side_type=ref.side_type or "Única"
+        )
+        db.add(db_ref)
+
     db.commit()
-    db.refresh(part)
-    return part
+    return db.query(Part).options(joinedload(Part.references_list)).filter(Part.id == part_id).first()
 
 @app.delete("/api/parts/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_part(part_id: int, db: Session = Depends(get_db)):
@@ -336,7 +317,7 @@ def get_shift_sheet_html(sheet_id: int, db: Session = Depends(get_db)):
 
     def render_row(item):
         mac_name = item.machine.name if item.machine else (item.machine_name_manual or '-')
-        part_ref = item.part.references if item.part else (item.part_reference_manual or '-')
+        part_ref = item.part.name if item.part else (item.part_reference_manual or '-')
         op_num = item.operator.operator_number if item.operator else (item.operator_number_manual or '-')
         op_name = item.operator.name if item.operator else (item.operator_name_manual or '-')
         
