@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Printer, Save, Calendar, Camera, Share2, Download, X } from 'lucide-react';
+import { Plus, Trash2, Printer, Save, Calendar, Camera, Share2, Download, X, Cpu, Package } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
 export default function ShiftProductionSheet({ 

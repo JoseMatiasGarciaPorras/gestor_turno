@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cpu, UserCheck, Package, Edit2, Trash2, Plus, X, Check } from 'lucide-react';
+import { Cpu, UserCheck, Package, Edit2, Trash2, Plus, X, Check, AlertTriangle } from 'lucide-react';
 
 export default function AdminCrudView({ 
   machines, operators, parts, 
@@ -9,11 +9,12 @@ export default function AdminCrudView({
 }) {
   const [subTab, setSubTab] = useState('machines'); // 'machines' | 'operators' | 'parts'
   const [editingItem, setEditingItem] = useState(null); // { type, item }
+  const [deletingItem, setDeletingItem] = useState(null); // { type, id, name }
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Form States
   const [name, setName] = useState('');
-  const [code, setCode] = useState(''); // machine_number / operator_number / references
+  const [code, setCode] = useState('');
   const [category, setCategory] = useState('General');
   const [location, setLocation] = useState('Sector A');
   const [description, setDescription] = useState('');
@@ -40,6 +41,15 @@ export default function AdminCrudView({
       setCode(item.references || '');
       setDescription(item.description || '');
     }
+  };
+
+  const handleConfirmDelete = () => {
+    if (!deletingItem) return;
+    const { type, id } = deletingItem;
+    if (type === 'machines') onDeleteMachine(id);
+    else if (type === 'operators') onDeleteOperator(id);
+    else if (type === 'parts') onDeletePart(id);
+    setDeletingItem(null);
   };
 
   const handleSave = (e) => {
@@ -120,7 +130,7 @@ export default function AdminCrudView({
               <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('machines', item)}>
                 <Edit2 size={15} color="#38bdf8" />
               </button>
-              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => confirm(`¿Eliminar máquina ${item.name}?`) && onDeleteMachine(item.id)}>
+              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => setDeletingItem({ type: 'machines', id: item.id, name: item.name })}>
                 <Trash2 size={15} />
               </button>
             </div>
@@ -139,7 +149,7 @@ export default function AdminCrudView({
               <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('operators', item)}>
                 <Edit2 size={15} color="#38bdf8" />
               </button>
-              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => confirm(`¿Eliminar operario ${item.name}?`) && onDeleteOperator(item.id)}>
+              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => setDeletingItem({ type: 'operators', id: item.id, name: item.name })}>
                 <Trash2 size={15} />
               </button>
             </div>
@@ -158,7 +168,7 @@ export default function AdminCrudView({
               <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('parts', item)}>
                 <Edit2 size={15} color="#38bdf8" />
               </button>
-              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => confirm(`¿Eliminar pieza ${item.name}?`) && onDeletePart(item.id)}>
+              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => setDeletingItem({ type: 'parts', id: item.id, name: item.name })}>
                 <Trash2 size={15} />
               </button>
             </div>
@@ -216,6 +226,27 @@ export default function AdminCrudView({
                 <Check size={18} /> {editingItem ? 'Guardar Cambios' : 'Crear Registro'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM DELETE MODAL OVERLAY */}
+      {deletingItem && (
+        <div className="modal-overlay" onClick={() => setDeletingItem(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center' }}>
+            <AlertTriangle size={48} color="#f43f5e" style={{ margin: '0 auto 12px' }} />
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '8px', color: '#ffffff' }}>¿Confirmar Eliminación?</h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '20px' }}>
+              ¿Estás seguro de que deseas eliminar <strong>"{deletingItem.name}"</strong>? Esta acción no se puede deshacer.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setDeletingItem(null)}>
+                Cancelar
+              </button>
+              <button className="btn btn-danger" style={{ flex: 1, background: '#f43f5e', color: 'white' }} onClick={handleConfirmDelete}>
+                Sí, Eliminar
+              </button>
+            </div>
           </div>
         </div>
       )}

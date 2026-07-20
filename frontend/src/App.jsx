@@ -8,7 +8,7 @@ import PartsList from './components/PartsList';
 import AdminCrudView from './components/AdminCrudView';
 import BottomNav from './components/BottomNav';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = 'http://localhost:8088/api';
 
 export default function App() {
   const [machines, setMachines] = useState([]);

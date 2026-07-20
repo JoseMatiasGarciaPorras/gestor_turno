@@ -173,6 +173,7 @@ def delete_operator(operator_id: int, db: Session = Depends(get_db)):
     op = db.query(Operator).filter(Operator.id == operator_id).first()
     if not op:
         raise HTTPException(status_code=404, detail="Operario no encontrado.")
+    db.query(ProductionItem).filter(ProductionItem.operator_id == operator_id).update({ProductionItem.operator_id: None})
     db.delete(op)
     db.commit()
     return None
@@ -212,6 +213,7 @@ def delete_part(part_id: int, db: Session = Depends(get_db)):
     part = db.query(Part).filter(Part.id == part_id).first()
     if not part:
         raise HTTPException(status_code=404, detail="Pieza no encontrada.")
+    db.query(ProductionItem).filter(ProductionItem.part_id == part_id).update({ProductionItem.part_id: None})
     db.delete(part)
     db.commit()
     return None
@@ -266,6 +268,7 @@ def delete_machine(machine_id: int, db: Session = Depends(get_db)):
     mac = db.query(Machine).filter(Machine.id == machine_id).first()
     if not mac:
         raise HTTPException(status_code=404, detail="Máquina no encontrada.")
+    db.query(ProductionItem).filter(ProductionItem.machine_id == machine_id).update({ProductionItem.machine_id: None})
     db.delete(mac)
     db.commit()
     return None
