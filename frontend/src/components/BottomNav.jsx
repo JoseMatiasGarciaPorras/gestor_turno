@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, UserCheck, Package, Factory } from 'lucide-react';
+import { Cpu, UserCheck, Package, Factory, Settings } from 'lucide-react';
 
 export default function BottomNav({ activeTab, setActiveTab }) {
   return (
@@ -34,6 +34,14 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       >
         <Factory />
         <span>Producción</span>
+      </button>
+
+      <button 
+        className={`nav-item ${activeTab === 'crud' ? 'active' : ''}`}
+        onClick={() => setActiveTab('crud')}
+      >
+        <Settings />
+        <span>CRUD</span>
       </button>
     </nav>
   );

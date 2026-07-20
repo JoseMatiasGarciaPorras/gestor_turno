@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, RefreshCw, Plus, FileText, UserCheck, Package, Factory } from 'lucide-react';
+import { Cpu, RefreshCw, Plus } from 'lucide-react';
 import MachineCard from './components/MachineCard';
-import ShiftModal from './components/ShiftModal';
 import MachineModal from './components/MachineModal';
 import OperatorsList from './components/OperatorsList';
 import PartsList from './components/PartsList';
 import ProductionList from './components/ProductionList';
 import ProductionModal from './components/ProductionModal';
+import AdminCrudView from './components/AdminCrudView';
 import BottomNav from './components/BottomNav';
 
 const API_BASE_URL = 'http://localhost:8000/api';
@@ -16,13 +16,11 @@ export default function App() {
   const [operators, setOperators] = useState([]);
   const [parts, setParts] = useState([]);
   const [productions, setProductions] = useState([]);
-  const [activeTab, setActiveTab] = useState('machines'); // 'machines' | 'operators' | 'parts' | 'production'
+  const [activeTab, setActiveTab] = useState('machines'); // 'machines' | 'operators' | 'parts' | 'production' | 'crud'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // Modals
-  const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
-  const [selectedMachineForShift, setSelectedMachineForShift] = useState(null);
   const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
   const [isProductionModalOpen, setIsProductionModalOpen] = useState(false);
 
@@ -94,7 +92,7 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Operarios Handlers
+  // --- CRUD OPERARIOS ---
   const handleCreateOperator = async (opData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/operators`, {
@@ -102,19 +100,38 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(opData)
       });
-      if (res.ok) {
-        fetchData();
-        return;
-      }
+      if (res.ok) { fetchData(); return; }
     } catch (e) {}
-
-    const newOp = { ...opData, id: Date.now() };
-    const updated = [...operators, newOp];
+    const updated = [...operators, { ...opData, id: Date.now() }];
     setOperators(updated);
     localStorage.setItem('gestor_operators', JSON.stringify(updated));
   };
 
-  // Piezas Handlers
+  const handleUpdateOperator = async (id, opData) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/operators/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(opData)
+      });
+      if (res.ok) { fetchData(); return; }
+    } catch (e) {}
+    const updated = operators.map(o => o.id === id ? { ...o, ...opData } : o);
+    setOperators(updated);
+    localStorage.setItem('gestor_operators', JSON.stringify(updated));
+  };
+
+  const handleDeleteOperator = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/operators/${id}`, { method: 'DELETE' });
+      if (res.ok) { fetchData(); return; }
+    } catch (e) {}
+    const updated = operators.filter(o => o.id !== id);
+    setOperators(updated);
+    localStorage.setItem('gestor_operators', JSON.stringify(updated));
+  };
+
+  // --- CRUD PIEZAS ---
   const handleCreatePart = async (partData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/parts`, {
@@ -122,19 +139,38 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(partData)
       });
-      if (res.ok) {
-        fetchData();
-        return;
-      }
+      if (res.ok) { fetchData(); return; }
     } catch (e) {}
-
-    const newPart = { ...partData, id: Date.now() };
-    const updated = [...parts, newPart];
+    const updated = [...parts, { ...partData, id: Date.now() }];
     setParts(updated);
     localStorage.setItem('gestor_parts', JSON.stringify(updated));
   };
 
-  // Máquinas Handlers
+  const handleUpdatePart = async (id, partData) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/parts/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(partData)
+      });
+      if (res.ok) { fetchData(); return; }
+    } catch (e) {}
+    const updated = parts.map(p => p.id === id ? { ...p, ...partData } : p);
+    setParts(updated);
+    localStorage.setItem('gestor_parts', JSON.stringify(updated));
+  };
+
+  const handleDeletePart = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/parts/${id}`, { method: 'DELETE' });
+      if (res.ok) { fetchData(); return; }
+    } catch (e) {}
+    const updated = parts.filter(p => p.id !== id);
+    setParts(updated);
+    localStorage.setItem('gestor_parts', JSON.stringify(updated));
+  };
+
+  // --- CRUD MÁQUINAS ---
   const handleCreateMachine = async (machineData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/machines`, {
@@ -142,18 +178,36 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineData)
       });
-      if (res.ok) {
-        setIsMachineModalOpen(false);
-        fetchData();
-        return;
-      }
+      if (res.ok) { setIsMachineModalOpen(false); fetchData(); return; }
     } catch (e) {}
-
-    const newMac = { ...machineData, id: Date.now() };
-    const updated = [...machines, newMac];
+    const updated = [...machines, { ...machineData, id: Date.now() }];
     setMachines(updated);
     localStorage.setItem('gestor_machines', JSON.stringify(updated));
     setIsMachineModalOpen(false);
+  };
+
+  const handleUpdateMachine = async (id, machineData) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/machines/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(machineData)
+      });
+      if (res.ok) { fetchData(); return; }
+    } catch (e) {}
+    const updated = machines.map(m => m.id === id ? { ...m, ...machineData } : m);
+    setMachines(updated);
+    localStorage.setItem('gestor_machines', JSON.stringify(updated));
+  };
+
+  const handleDeleteMachine = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/machines/${id}`, { method: 'DELETE' });
+      if (res.ok) { fetchData(); return; }
+    } catch (e) {}
+    const updated = machines.filter(m => m.id !== id);
+    setMachines(updated);
+    localStorage.setItem('gestor_machines', JSON.stringify(updated));
   };
 
   const handleChangeStatus = async (machineId, newStatus) => {
@@ -163,18 +217,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
-      if (res.ok) {
-        fetchData();
-        return;
-      }
+      if (res.ok) { fetchData(); return; }
     } catch (e) {}
-
     const updated = machines.map(m => m.id === machineId ? { ...m, status: newStatus } : m);
     setMachines(updated);
     localStorage.setItem('gestor_machines', JSON.stringify(updated));
   };
 
-  // Producción Handlers
+  // --- PRODUCCIÓN ---
   const handleCreateProduction = async (prodData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/productions`, {
@@ -182,25 +232,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(prodData)
       });
-      if (res.ok) {
-        setIsProductionModalOpen(false);
-        fetchData();
-        return;
-      }
+      if (res.ok) { setIsProductionModalOpen(false); fetchData(); return; }
     } catch (e) {}
 
     const op = operators.find(o => o.id === prodData.operator_id);
     const mac = machines.find(m => m.id === prodData.machine_id);
     const part = parts.find(p => p.id === prodData.part_id);
 
-    const newProd = {
-      ...prodData,
-      id: Date.now(),
-      operator: op,
-      machine: mac,
-      part: part
-    };
-
+    const newProd = { ...prodData, id: Date.now(), operator: op, machine: mac, part: part };
     const updated = [newProd, ...productions];
     setProductions(updated);
     localStorage.setItem('gestor_productions', JSON.stringify(updated));
@@ -211,7 +250,7 @@ export default function App() {
     window.open(`${API_BASE_URL}/productions/${prodId}/html`, '_blank');
   };
 
-  // Quick stats
+  // Metrics
   const disponibles = machines.filter(m => m.status === 'disponible').length;
   const enUso = machines.filter(m => m.status === 'en_uso').length;
   const mantenimiento = machines.filter(m => m.status === 'mantenimiento').length;
@@ -221,13 +260,9 @@ export default function App() {
       {/* Header */}
       <header className="header-bar">
         <h1 className="brand-title">
-          <Cpu color="#60a5fa" size={24} /> Gestor de Turnos & Producción
+          <Cpu color="#60a5fa" size={24} /> Gestor de Turnos & CRUD
         </h1>
-        <button 
-          onClick={fetchData} 
-          className="btn btn-secondary" 
-          style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}
-        >
+        <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}>
           <RefreshCw size={14} className={loading ? 'spin' : ''} />
         </button>
       </header>
@@ -252,16 +287,12 @@ export default function App() {
         </div>
       </div>
 
-      {/* Active Tab View */}
+      {/* Main Tab Views */}
       {activeTab === 'machines' && (
         <>
           <div className="section-header">
             <h2 className="section-title">Máquinas Operativas</h2>
-            <button 
-              className="btn btn-secondary" 
-              style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }}
-              onClick={() => setIsMachineModalOpen(true)}
-            >
+            <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setIsMachineModalOpen(true)}>
               <Plus size={14} /> Nueva
             </button>
           </div>
@@ -272,7 +303,7 @@ export default function App() {
                 key={m.id} 
                 machine={m} 
                 onAssignShift={() => setIsProductionModalOpen(true)}
-                onCompleteShift={(id) => handleChangeStatus(m.id, 'disponible')}
+                onCompleteShift={() => handleChangeStatus(m.id, 'disponible')}
                 onChangeStatus={handleChangeStatus}
               />
             ))}
@@ -296,12 +327,26 @@ export default function App() {
         />
       )}
 
+      {activeTab === 'crud' && (
+        <AdminCrudView 
+          machines={machines}
+          operators={operators}
+          parts={parts}
+          onCreateMachine={handleCreateMachine}
+          onUpdateMachine={handleUpdateMachine}
+          onDeleteMachine={handleDeleteMachine}
+          onCreateOperator={handleCreateOperator}
+          onUpdateOperator={handleUpdateOperator}
+          onDeleteOperator={handleDeleteOperator}
+          onCreatePart={handleCreatePart}
+          onUpdatePart={handleUpdatePart}
+          onDeletePart={handleDeletePart}
+        />
+      )}
+
       {/* Modals */}
       {isMachineModalOpen && (
-        <MachineModal 
-          onClose={() => setIsMachineModalOpen(false)}
-          onSubmit={handleCreateMachine}
-        />
+        <MachineModal onClose={() => setIsMachineModalOpen(false)} onSubmit={handleCreateMachine} />
       )}
 
       {isProductionModalOpen && (
@@ -314,7 +359,7 @@ export default function App() {
         />
       )}
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation Bar */}
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
   );

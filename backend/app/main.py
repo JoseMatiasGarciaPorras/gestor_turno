@@ -106,6 +106,31 @@ def create_operator(operator: OperatorCreate, db: Session = Depends(get_db)):
     db.refresh(db_op)
     return db_op
 
+@app.put("/api/operators/{operator_id}", response_model=OperatorResponse)
+def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Depends(get_db)):
+    op = db.query(Operator).filter(Operator.id == operator_id).first()
+    if not op:
+        raise HTTPException(status_code=404, detail="Operario no encontrado.")
+    
+    existing = db.query(Operator).filter(Operator.operator_number == payload.operator_number, Operator.id != operator_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"El número de operario '{payload.operator_number}' ya está asignado a otro operario.")
+        
+    op.name = payload.name
+    op.operator_number = payload.operator_number
+    db.commit()
+    db.refresh(op)
+    return op
+
+@app.delete("/api/operators/{operator_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_operator(operator_id: int, db: Session = Depends(get_db)):
+    op = db.query(Operator).filter(Operator.id == operator_id).first()
+    if not op:
+        raise HTTPException(status_code=404, detail="Operario no encontrado.")
+    db.delete(op)
+    db.commit()
+    return None
+
 # --- PIEZAS ---
 
 @app.get("/api/parts", response_model=List[PartResponse])
@@ -123,6 +148,32 @@ def create_part(part: PartCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_part)
     return db_part
+
+@app.put("/api/parts/{part_id}", response_model=PartResponse)
+def update_part(part_id: int, payload: PartCreate, db: Session = Depends(get_db)):
+    part = db.query(Part).filter(Part.id == part_id).first()
+    if not part:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada.")
+    
+    existing = db.query(Part).filter(Part.references == payload.references, Part.id != part_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"La referencia '{payload.references}' ya está asignada a otra pieza.")
+        
+    part.name = payload.name
+    part.references = payload.references
+    part.description = payload.description
+    db.commit()
+    db.refresh(part)
+    return part
+
+@app.delete("/api/parts/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_part(part_id: int, db: Session = Depends(get_db)):
+    part = db.query(Part).filter(Part.id == part_id).first()
+    if not part:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada.")
+    db.delete(part)
+    db.commit()
+    return None
 
 # --- MÁQUINAS ---
 
@@ -147,6 +198,28 @@ def create_machine(machine: MachineCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_mac)
     return db_mac
+
+@app.put("/api/machines/{machine_id}", response_model=MachineResponse)
+def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depends(get_db)):
+    mac = db.query(Machine).filter(Machine.id == machine_id).first()
+    if not mac:
+        raise HTTPException(status_code=404, detail="Máquina no encontrada.")
+    
+    existing = db.query(Machine).filter(Machine.machine_number == payload.machine_number, Machine.id != machine_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"El número de máquina '{payload.machine_number}' ya está en uso.")
+        
+    mac.name = payload.name
+    mac.machine_number = payload.machine_number
+    mac.category = payload.category
+    mac.location = payload.location
+    if payload.status:
+        mac.status = payload.status
+        
+    db.commit()
+    db.refresh(mac)
+    return mac
+
 
 @app.patch("/api/machines/{machine_id}/status", response_model=MachineResponse)
 def update_machine_status(machine_id: int, payload: MachineStatusUpdate, db: Session = Depends(get_db)):
