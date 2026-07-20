@@ -1,0 +1,20 @@
+# Node / React
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+
+# Python / FastAPI
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Environment / System
+.env
+.DS_Store
+*.sqlite3
+*.db
