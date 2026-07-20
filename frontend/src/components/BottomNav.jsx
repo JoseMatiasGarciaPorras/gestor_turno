@@ -1,7 +1,7 @@
 import React from 'react';
-import { Cpu, PlusCircle, History } from 'lucide-react';
+import { Cpu, UserCheck, Package, Factory } from 'lucide-react';
 
-export default function BottomNav({ activeTab, setActiveTab, onOpenNewShift }) {
+export default function BottomNav({ activeTab, setActiveTab }) {
   return (
     <nav className="bottom-nav">
       <button 
@@ -13,20 +13,27 @@ export default function BottomNav({ activeTab, setActiveTab, onOpenNewShift }) {
       </button>
 
       <button 
-        className="nav-item"
-        style={{ color: '#3b82f6' }}
-        onClick={onOpenNewShift}
+        className={`nav-item ${activeTab === 'operators' ? 'active' : ''}`}
+        onClick={() => setActiveTab('operators')}
       >
-        <PlusCircle style={{ width: '28px', height: '28px' }} />
-        <span>+ Turno</span>
+        <UserCheck />
+        <span>Operarios</span>
       </button>
 
       <button 
-        className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
-        onClick={() => setActiveTab('history')}
+        className={`nav-item ${activeTab === 'parts' ? 'active' : ''}`}
+        onClick={() => setActiveTab('parts')}
       >
-        <History />
-        <span>Historial</span>
+        <Package />
+        <span>Piezas</span>
+      </button>
+
+      <button 
+        className={`nav-item ${activeTab === 'production' ? 'active' : ''}`}
+        onClick={() => setActiveTab('production')}
+      >
+        <Factory />
+        <span>Producción</span>
       </button>
     </nav>
   );
