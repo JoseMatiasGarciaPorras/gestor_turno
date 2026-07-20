@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Cpu, UserCheck, Package, Edit2, Trash2, Plus, X, Check, AlertTriangle, Tag } from 'lucide-react';
+import { Cpu, UserCheck, Package, Edit2, Trash2, Plus, X, Check, AlertTriangle } from 'lucide-react';
+import { getNormalizedReferences } from './ShiftProductionSheet';
 
 export default function AdminCrudView({ 
-  machines, operators, parts, 
+  machines = [], operators = [], parts = [], 
   onCreateMachine, onUpdateMachine, onDeleteMachine,
   onCreateOperator, onUpdateOperator, onDeleteOperator,
   onCreatePart, onUpdatePart, onDeletePart 
@@ -66,10 +67,8 @@ export default function AdminCrudView({
       setCode(item.operator_number || '');
     } else if (type === 'parts') {
       setDescription(item.description || '');
-      const refs = item.references_list && item.references_list.length > 0 
-        ? item.references_list.map(r => ({ code: r.code, side_type: r.side_type }))
-        : [{ code: item.references || '', side_type: 'Única' }];
-      setReferencesList(refs);
+      const refs = getNormalizedReferences(item);
+      setReferencesList(refs.length > 0 ? refs : [{ code: '', side_type: 'Única' }]);
     }
   };
 
@@ -185,49 +184,52 @@ export default function AdminCrudView({
           </div>
         ))}
 
-        {subTab === 'parts' && parts.map(item => (
-          <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.name}</div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('parts', item)}>
-                  <Edit2 size={15} color="#38bdf8" />
-                </button>
-                <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => setDeletingItem({ type: 'parts', id: item.id, name: item.name })}>
-                  <Trash2 size={15} />
-                </button>
+        {subTab === 'parts' && parts.map(item => {
+          const normRefs = getNormalizedReferences(item);
+          return (
+            <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.name}</div>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('parts', item)}>
+                    <Edit2 size={15} color="#38bdf8" />
+                  </button>
+                  <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => setDeletingItem({ type: 'parts', id: item.id, name: item.name })}>
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* LISTA DE REFERENCIAS ESTRUCTURADAS */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                {normRefs.length > 0 ? (
+                  normRefs.map((r, rIdx) => {
+                    const styleColor = getSideColor(r.side_type);
+                    return (
+                      <span 
+                        key={rIdx} 
+                        style={{ 
+                          fontSize: '0.78rem', 
+                          fontWeight: 'bold', 
+                          fontFamily: 'monospace',
+                          background: styleColor.bg, 
+                          color: styleColor.text, 
+                          border: `1px solid ${styleColor.border}`, 
+                          padding: '2px 8px', 
+                          borderRadius: '12px' 
+                        }}
+                      >
+                        {r.code} ({r.side_type})
+                      </span>
+                    );
+                  })
+                ) : (
+                  <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Sin referencias asignadas</span>
+                )}
               </div>
             </div>
-
-            {/* LISTA DE REFERENCIAS ESTRUCTURADAS */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
-              {item.references_list && item.references_list.length > 0 ? (
-                item.references_list.map((r, rIdx) => {
-                  const styleColor = getSideColor(r.side_type);
-                  return (
-                    <span 
-                      key={rIdx} 
-                      style={{ 
-                        fontSize: '0.78rem', 
-                        fontWeight: 'bold', 
-                        fontFamily: 'monospace',
-                        background: styleColor.bg, 
-                        color: styleColor.text, 
-                        border: `1px solid ${styleColor.border}`, 
-                        padding: '2px 8px', 
-                        borderRadius: '12px' 
-                      }}
-                    >
-                      {r.code} ({r.side_type})
-                    </span>
-                  );
-                })
-              ) : (
-                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Sin referencias asignadas</span>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* CREATE & EDIT MODAL */}
@@ -271,7 +273,6 @@ export default function AdminCrudView({
                 </div>
               )}
 
-              {/* FORMULARIO DINÁMICO DE REFERENCIAS PARA PIEZAS */}
               {subTab === 'parts' && (
                 <>
                   <div className="form-group">

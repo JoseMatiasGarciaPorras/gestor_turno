@@ -2,8 +2,33 @@ import React, { useState, useRef } from 'react';
 import { Plus, Trash2, Save, Calendar, Camera, Search, Cpu, Package } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
+// Normalizador súper seguro de referencias de piezas
+export function getNormalizedReferences(part) {
+  if (!part) return [];
+  
+  if (Array.isArray(part.references_list) && part.references_list.length > 0) {
+    return part.references_list.map(r => ({
+      code: typeof r === 'object' && r !== null ? String(r.code || '') : String(r || ''),
+      side_type: typeof r === 'object' && r !== null ? String(r.side_type || 'Única') : 'Única'
+    })).filter(r => r.code.trim() !== '');
+  }
+  
+  if (Array.isArray(part.references) && part.references.length > 0) {
+    return part.references.map(r => ({
+      code: typeof r === 'object' && r !== null ? String(r.code || '') : String(r || ''),
+      side_type: typeof r === 'object' && r !== null ? String(r.side_type || 'Única') : 'Única'
+    })).filter(r => r.code.trim() !== '');
+  }
+  
+  if (typeof part.references === 'string' && part.references.trim() !== '') {
+    return [{ code: part.references.trim(), side_type: 'Única' }];
+  }
+  
+  return [];
+}
+
 export default function ShiftProductionSheet({ 
-  machines, operators, parts, currentSheet, onSaveSheet, onOpenHtmlReport 
+  machines = [], operators = [], parts = [], currentSheet, onSaveSheet, onOpenHtmlReport 
 }) {
   const printSheetRef = useRef(null);
 
@@ -17,21 +42,22 @@ export default function ShiftProductionSheet({
   // Active autocomplete row ID
   const [activeSearchRowId, setActiveSearchRowId] = useState(null);
 
-  // Flattened references list with part names and side classification
+  // Extraer lista plana de referencias clasificadas con protección de tipo
   const availableReferences = [];
   parts.forEach(p => {
-    if (p.references_list && p.references_list.length > 0) {
-      p.references_list.forEach(r => {
+    const refs = getNormalizedReferences(p);
+    if (refs.length > 0) {
+      refs.forEach(r => {
         availableReferences.push({
-          part_name: p.name,
-          code: r.code,
-          side_type: r.side_type || 'Única'
+          part_name: String(p.name || 'Pieza General'),
+          code: String(r.code || ''),
+          side_type: String(r.side_type || 'Única')
         });
       });
-    } else if (p.references) {
+    } else if (p.name) {
       availableReferences.push({
-        part_name: p.name,
-        code: p.references,
+        part_name: String(p.name),
+        code: 'S/N',
         side_type: 'Única'
       });
     }
@@ -124,9 +150,9 @@ export default function ShiftProductionSheet({
       if (item.id === rowId) {
         return {
           ...item,
-          part_name: refObj.part_name,
-          part_reference: refObj.code,
-          machine_side: refObj.side_type || 'Única'
+          part_name: String(refObj.part_name || ''),
+          part_reference: String(refObj.code || ''),
+          machine_side: String(refObj.side_type || 'Única')
         };
       }
       return item;
@@ -305,16 +331,19 @@ export default function ShiftProductionSheet({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
         {plantaItems.map((item) => {
+          const currentRefText = String(item.part_reference || '').toLowerCase();
+          const currentNameText = String(item.part_name || '').toLowerCase();
+
           const filteredSuggestions = availableReferences.filter(r => 
-            r.part_name.toLowerCase().includes(item.part_name.toLowerCase()) ||
-            r.code.toLowerCase().includes(item.part_reference.toLowerCase()) ||
-            r.part_name.toLowerCase().includes(item.part_reference.toLowerCase())
+            r.part_name.toLowerCase().includes(currentNameText) ||
+            r.code.toLowerCase().includes(currentRefText) ||
+            r.part_name.toLowerCase().includes(currentRefText)
           );
 
           return (
             <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
               
-              {/* CABECERA LIMPIA DE FILA: MÁQUINA + BOTÓN DE BORRAR */}
+              {/* CABECERA DE FILA: MÁQUINA + BORRAR */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                 <select 
                   className="form-select" 
@@ -348,7 +377,7 @@ export default function ShiftProductionSheet({
                       className="form-input" 
                       style={{ minHeight: '42px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', paddingRight: '32px' }}
                       placeholder="Escribe pieza o ref (ej. Espejo, 90100108, L381)..."
-                      value={item.part_reference}
+                      value={String(item.part_reference || '')}
                       onFocus={() => setActiveSearchRowId(item.id)}
                       onChange={(e) => {
                         updateRow(item.id, 'part_reference', e.target.value);
@@ -359,7 +388,7 @@ export default function ShiftProductionSheet({
                   </div>
                 </div>
 
-                {/* DESPLEGABLE DE SUGERENCIAS */}
+                {/* DESPLEGABLE DE SUGERENCIAS EN VIVO */}
                 {activeSearchRowId === item.id && (
                   <div style={{ 
                     position: 'absolute', 
@@ -395,8 +424,8 @@ export default function ShiftProductionSheet({
                           onMouseDown={() => selectAutocompleteRef(item.id, sug)}
                         >
                           <div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{sug.part_name}</div>
-                            <div style={{ fontSize: '0.78rem', fontFamily: 'monospace', color: '#c084fc' }}>Ref: {sug.code}</div>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{String(sug.part_name)}</div>
+                            <div style={{ fontSize: '0.78rem', fontFamily: 'monospace', color: '#c084fc' }}>Ref: {String(sug.code)}</div>
                           </div>
                           <span style={{ 
                             fontSize: '0.7rem', 
@@ -406,13 +435,13 @@ export default function ShiftProductionSheet({
                             background: sug.side_type === 'IZQ' ? 'rgba(59, 130, 246, 0.2)' : (sug.side_type === 'DCH' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'),
                             color: sug.side_type === 'IZQ' ? '#60a5fa' : (sug.side_type === 'DCH' ? '#f59e0b' : '#10b981')
                           }}>
-                            {sug.side_type}
+                            {String(sug.side_type)}
                           </span>
                         </div>
                       ))
                     ) : (
                       <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
-                        Sin sugerencias para "{item.part_reference}"
+                        Sin sugerencias coincidentes
                       </div>
                     )}
                   </div>
@@ -491,7 +520,7 @@ export default function ShiftProductionSheet({
                 className="form-input" 
                 style={{ fontFamily: 'monospace', fontWeight: 'bold' }}
                 placeholder="Referencia Montaje (ej. IS6170080-02)"
-                value={item.part_reference}
+                value={String(item.part_reference || '')}
                 onChange={(e) => updateRow(item.id, 'part_reference', e.target.value)}
               />
               <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px', marginLeft: '8px' }} onClick={() => removeRow(item.id)}>
@@ -565,7 +594,7 @@ export default function ShiftProductionSheet({
               <tr key={idx}>
                 <td style={{ border: '1px solid #000', padding: '5px', fontWeight: 'bold' }}>{i.machine_name}</td>
                 <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{i.machine_side}</td>
-                <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{i.part_reference}</td>
+                <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{String(i.part_reference || '')}</td>
                 <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{i.quantity_ok}</td>
                 <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{i.quantity_ko > 0 ? i.quantity_ko : ''}</td>
                 <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{i.operator_number}</td>
@@ -592,7 +621,7 @@ export default function ShiftProductionSheet({
               <tbody>
                 {montajeItems.map((i, idx) => (
                   <tr key={idx}>
-                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{i.part_reference}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{String(i.part_reference || '')}</td>
                     <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{i.quantity_ok}</td>
                     <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{i.operator_number}</td>
                     <td style={{ border: '1px solid #000', padding: '5px' }}>{i.operator_name}</td>

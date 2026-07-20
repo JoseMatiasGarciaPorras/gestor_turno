@@ -77,8 +77,8 @@ export default function App() {
       if (cachedParts) setParts(JSON.parse(cachedParts));
       else {
         const defParts = [
-          { id: 1, name: "Pieza 90100108", references: "90100108" },
-          { id: 2, name: "Pieza L381154", references: "L381154" }
+          { id: 1, name: "Pieza 90100108", references_list: [{ code: "90100108", side_type: "Única" }] },
+          { id: 2, name: "Pieza L381154", references_list: [{ code: "L381154", side_type: "IZQ" }, { code: "L381153", side_type: "DCH" }] }
         ];
         setParts(defParts);
         localStorage.setItem('gestor_parts', JSON.stringify(defParts));
@@ -104,7 +104,7 @@ export default function App() {
         const created = await res.json();
         setCurrentSheet(created);
         alert("¡Parte de producción guardado con éxito!");
-        fetchData();
+        await fetchData();
         return;
       }
     } catch (e) {}
@@ -119,7 +119,7 @@ export default function App() {
     window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html`, '_blank');
   };
 
-  // Handlers CRUD
+  // Handlers CRUD de Operarios
   const handleCreateOperator = async (opData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/operators`, {
@@ -127,7 +127,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(opData)
       });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = [...operators, { ...opData, id: Date.now() }];
     setOperators(updated);
@@ -141,7 +141,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(opData)
       });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = operators.map(o => o.id === id ? { ...o, ...opData } : o);
     setOperators(updated);
@@ -151,13 +151,14 @@ export default function App() {
   const handleDeleteOperator = async (id) => {
     try {
       const res = await fetch(`${API_BASE_URL}/operators/${id}`, { method: 'DELETE' });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = operators.filter(o => o.id !== id);
     setOperators(updated);
     localStorage.setItem('gestor_operators', JSON.stringify(updated));
   };
 
+  // Handlers CRUD de Piezas
   const handleCreatePart = async (partData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/parts`, {
@@ -165,9 +166,15 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(partData)
       });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
-    const updated = [...parts, { ...partData, id: Date.now() }];
+    const newPart = {
+      id: Date.now(),
+      name: partData.name,
+      description: partData.description,
+      references_list: partData.references || []
+    };
+    const updated = [...parts, newPart];
     setParts(updated);
     localStorage.setItem('gestor_parts', JSON.stringify(updated));
   };
@@ -179,9 +186,14 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(partData)
       });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
-    const updated = parts.map(p => p.id === id ? { ...p, ...partData } : p);
+    const updated = parts.map(p => p.id === id ? {
+      ...p,
+      name: partData.name,
+      description: partData.description,
+      references_list: partData.references || []
+    } : p);
     setParts(updated);
     localStorage.setItem('gestor_parts', JSON.stringify(updated));
   };
@@ -189,13 +201,14 @@ export default function App() {
   const handleDeletePart = async (id) => {
     try {
       const res = await fetch(`${API_BASE_URL}/parts/${id}`, { method: 'DELETE' });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = parts.filter(p => p.id !== id);
     setParts(updated);
     localStorage.setItem('gestor_parts', JSON.stringify(updated));
   };
 
+  // Handlers CRUD de Máquinas
   const handleCreateMachine = async (machineData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/machines`, {
@@ -203,7 +216,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineData)
       });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = [...machines, { ...machineData, id: Date.now() }];
     setMachines(updated);
@@ -217,7 +230,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineData)
       });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = machines.map(m => m.id === id ? { ...m, ...machineData } : m);
     setMachines(updated);
@@ -227,7 +240,7 @@ export default function App() {
   const handleDeleteMachine = async (id) => {
     try {
       const res = await fetch(`${API_BASE_URL}/machines/${id}`, { method: 'DELETE' });
-      if (res.ok) { fetchData(); return; }
+      if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = machines.filter(m => m.id !== id);
     setMachines(updated);
