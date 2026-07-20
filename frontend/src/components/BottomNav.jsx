@@ -1,9 +1,17 @@
 import React from 'react';
-import { Cpu, UserCheck, Package, Factory, Settings } from 'lucide-react';
+import { ClipboardList, Cpu, UserCheck, Package, Settings } from 'lucide-react';
 
 export default function BottomNav({ activeTab, setActiveTab }) {
   return (
     <nav className="bottom-nav">
+      <button 
+        className={`nav-item ${activeTab === 'sheet' ? 'active' : ''}`}
+        onClick={() => setActiveTab('sheet')}
+      >
+        <ClipboardList />
+        <span>Parte Turno</span>
+      </button>
+
       <button 
         className={`nav-item ${activeTab === 'machines' ? 'active' : ''}`}
         onClick={() => setActiveTab('machines')}
@@ -26,14 +34,6 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       >
         <Package />
         <span>Piezas</span>
-      </button>
-
-      <button 
-        className={`nav-item ${activeTab === 'production' ? 'active' : ''}`}
-        onClick={() => setActiveTab('production')}
-      >
-        <Factory />
-        <span>Producción</span>
       </button>
 
       <button 

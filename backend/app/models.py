@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, Date, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime, date
 from app.database import Base
@@ -8,68 +8,71 @@ class Operator(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    operator_number = Column(String(50), unique=True, index=True, nullable=False)  # Número de operario único manual
+    operator_number = Column(String(50), unique=True, index=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    productions = relationship("Production", back_populates="operator")
-    shifts = relationship("Shift", back_populates="operator")
+    production_items = relationship("ProductionItem", back_populates="operator")
 
 class Machine(Base):
     __tablename__ = "machines"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    machine_number = Column(String(50), unique=True, index=True, nullable=False)  # Número de máquina
+    machine_number = Column(String(50), unique=True, index=True, nullable=False)
     category = Column(String(50), default="General")
-    status = Column(String(30), default="disponible")  # disponible, en_uso, mantenimiento
+    status = Column(String(30), default="disponible")
     location = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    shifts = relationship("Shift", back_populates="machine", cascade="all, delete-orphan")
-    productions = relationship("Production", back_populates="machine")
+    production_items = relationship("ProductionItem", back_populates="machine")
 
 class Part(Base):
     __tablename__ = "parts"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    references = Column(String(255), unique=True, index=True, nullable=False)  # Referencias alfanuméricas únicas
+    references = Column(String(255), unique=True, index=True, nullable=False)
     description = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    productions = relationship("Production", back_populates="part")
+    production_items = relationship("ProductionItem", back_populates="part")
 
-class Shift(Base):
-    __tablename__ = "shifts"
-
-    id = Column(Integer, primary_key=True, index=True)
-    machine_id = Column(Integer, ForeignKey("machines.id", ondelete="CASCADE"), nullable=False)
-    operator_id = Column(Integer, ForeignKey("operators.id", ondelete="SET NULL"), nullable=True)
-    operator_name = Column(String(100), nullable=False)
-    start_time = Column(DateTime, default=datetime.utcnow)
-    end_time = Column(DateTime, nullable=True)
-    duration_minutes = Column(Integer, nullable=True)
-    status = Column(String(30), default="activo")
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    machine = relationship("Machine", back_populates="shifts")
-    operator = relationship("Operator", back_populates="shifts")
-
-class Production(Base):
-    __tablename__ = "productions"
+class ShiftSheet(Base):
+    __tablename__ = "shift_sheets"
 
     id = Column(Integer, primary_key=True, index=True)
     production_date = Column(Date, default=date.today, nullable=False)
-    shift_name = Column(String(50), nullable=False)  # ej: Mañana, Tarde, Noche, Turno 1
-    supervisor = Column(String(100), nullable=False) # Encargado
-    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=False)
-    operator_id = Column(Integer, ForeignKey("operators.id"), nullable=False)
-    part_id = Column(Integer, ForeignKey("parts.id"), nullable=False)
-    quantity_produced = Column(Integer, default=0, nullable=False)
-    notes = Column(Text, nullable=True)
+    shift_name = Column(String(50), nullable=False)  # Tarde, Mañana, Noche
+    supervisor = Column(String(100), nullable=False) # Matias
+    incidents_notes = Column(Text, nullable=True)     # Incidencias / Falta personal
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    machine = relationship("Machine", back_populates="productions")
-    operator = relationship("Operator", back_populates="productions")
-    part = relationship("Part", back_populates="productions")
+    items = relationship("ProductionItem", back_populates="shift_sheet", cascade="all, delete-orphan")
+
+class ProductionItem(Base):
+    __tablename__ = "production_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    shift_sheet_id = Column(Integer, ForeignKey("shift_sheets.id", ondelete="CASCADE"), nullable=False)
+    
+    machine_id = Column(Integer, ForeignKey("machines.id"), nullable=True)
+    machine_name_manual = Column(String(100), nullable=True)
+    machine_side = Column(String(10), default="IZQ")  # IZQ, DCH
+    
+    part_id = Column(Integer, ForeignKey("parts.id"), nullable=True)
+    part_reference_manual = Column(String(100), nullable=True) # Referencia (ej. 90100108, L381154)
+    
+    quantity_ok = Column(Integer, default=0, nullable=False)
+    quantity_ko = Column(Integer, default=0, nullable=False)
+    
+    operator_id = Column(Integer, ForeignKey("operators.id"), nullable=True)
+    operator_name_manual = Column(String(100), nullable=True)
+    operator_number_manual = Column(String(50), nullable=True)
+    
+    is_montaje = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    shift_sheet = relationship("ShiftSheet", back_populates="items")
+    machine = relationship("Machine", back_populates="production_items")
+    part = relationship("Part", back_populates="production_items")
+    operator = relationship("Operator", back_populates="production_items")

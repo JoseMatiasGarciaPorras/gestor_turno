@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, RefreshCw, Plus } from 'lucide-react';
+import ShiftProductionSheet from './components/ShiftProductionSheet';
 import MachineCard from './components/MachineCard';
 import MachineModal from './components/MachineModal';
 import OperatorsList from './components/OperatorsList';
 import PartsList from './components/PartsList';
-import ProductionList from './components/ProductionList';
-import ProductionModal from './components/ProductionModal';
 import AdminCrudView from './components/AdminCrudView';
 import BottomNav from './components/BottomNav';
 
@@ -15,30 +14,37 @@ export default function App() {
   const [machines, setMachines] = useState([]);
   const [operators, setOperators] = useState([]);
   const [parts, setParts] = useState([]);
-  const [productions, setProductions] = useState([]);
-  const [activeTab, setActiveTab] = useState('machines'); // 'machines' | 'operators' | 'parts' | 'production' | 'crud'
+  const [shiftSheets, setShiftSheets] = useState([]);
+  const [currentSheet, setCurrentSheet] = useState(null);
+  
+  // Vista principal por defecto: 'sheet' (Parte Digital de Producción por Turno)
+  const [activeTab, setActiveTab] = useState('sheet'); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Modals
   const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
-  const [isProductionModalOpen, setIsProductionModalOpen] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resMac, resOp, resParts, resProd] = await Promise.all([
+      const [resMac, resOp, resParts, resSheets] = await Promise.all([
         fetch(`${API_BASE_URL}/machines`),
         fetch(`${API_BASE_URL}/operators`),
         fetch(`${API_BASE_URL}/parts`),
-        fetch(`${API_BASE_URL}/productions`)
+        fetch(`${API_BASE_URL}/shift-sheets`)
       ]);
 
-      if (resMac.ok && resOp.ok && resParts.ok && resProd.ok) {
-        setMachines(await resMac.json());
-        setOperators(await resOp.json());
-        setParts(await resParts.json());
-        setProductions(await resProd.json());
+      if (resMac.ok && resOp.ok && resParts.ok && resSheets.ok) {
+        const macsData = await resMac.json();
+        const opsData = await resOp.json();
+        const partsData = await resParts.json();
+        const sheetsData = await resSheets.json();
+
+        setMachines(macsData);
+        setOperators(opsData);
+        setParts(partsData);
+        setShiftSheets(sheetsData);
+        if (sheetsData.length > 0) setCurrentSheet(sheetsData[0]);
         setError(null);
       } else {
         throw new Error("Error en servidor backend");
@@ -50,14 +56,14 @@ export default function App() {
       const cachedMac = localStorage.getItem('gestor_machines');
       const cachedOp = localStorage.getItem('gestor_operators');
       const cachedParts = localStorage.getItem('gestor_parts');
-      const cachedProd = localStorage.getItem('gestor_productions');
 
       if (cachedMac) setMachines(JSON.parse(cachedMac));
       else {
         const defMac = [
-          { id: 1, name: "Torno CNC Haas ST-10", machine_number: "M-101", category: "Mecanizado", status: "disponible", location: "Sector A" },
-          { id: 2, name: "Fresadora VF-2", machine_number: "M-102", category: "Mecanizado", status: "en_uso", location: "Sector A" },
-          { id: 3, name: "Cortadora Láser 3kW", machine_number: "M-201", category: "Corte", status: "disponible", location: "Sector B" }
+          { id: 1, name: "RB1000", machine_number: "M-1000", category: "Inyección", status: "en_uso" },
+          { id: 2, name: "NS1500", machine_number: "M-1500", category: "Inyección", status: "en_uso" },
+          { id: 3, name: "ENGEL 550", machine_number: "M-E550", category: "Inyección", status: "en_uso" },
+          { id: 4, name: "SUMITOMO", machine_number: "M-SUM", category: "Inyección", status: "disponible" }
         ];
         setMachines(defMac);
         localStorage.setItem('gestor_machines', JSON.stringify(defMac));
@@ -66,8 +72,9 @@ export default function App() {
       if (cachedOp) setOperators(JSON.parse(cachedOp));
       else {
         const defOp = [
-          { id: 1, name: "Juan Pérez", operator_number: "OP-001" },
-          { id: 2, name: "Carlos Mendoza", operator_number: "OP-002" }
+          { id: 1, name: "Natalia", operator_number: "247" },
+          { id: 2, name: "Diantra", operator_number: "214" },
+          { id: 3, name: "Rocío", operator_number: "237" }
         ];
         setOperators(defOp);
         localStorage.setItem('gestor_operators', JSON.stringify(defOp));
@@ -76,13 +83,12 @@ export default function App() {
       if (cachedParts) setParts(JSON.parse(cachedParts));
       else {
         const defParts = [
-          { id: 1, name: "Eje de Transmisión Al-7075", references: "REF-EJ-1001" }
+          { id: 1, name: "Pieza 90100108", references: "90100108" },
+          { id: 2, name: "Pieza L381154", references: "L381154" }
         ];
         setParts(defParts);
         localStorage.setItem('gestor_parts', JSON.stringify(defParts));
       }
-
-      if (cachedProd) setProductions(JSON.parse(cachedProd));
     } finally {
       setLoading(false);
     }
@@ -92,7 +98,35 @@ export default function App() {
     fetchData();
   }, []);
 
-  // --- CRUD OPERARIOS ---
+  // Guardar Parte de Turno
+  const handleSaveSheet = async (sheetPayload) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/shift-sheets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sheetPayload)
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setCurrentSheet(created);
+        alert("¡Parte de producción guardado con éxito!");
+        fetchData();
+        return;
+      }
+    } catch (e) {}
+
+    // Fallback local
+    const newSheet = { ...sheetPayload, id: Date.now() };
+    setCurrentSheet(newSheet);
+    localStorage.setItem('gestor_current_sheet', JSON.stringify(newSheet));
+    alert("Guardado en almacenamiento local (Modo Offline)");
+  };
+
+  const handleOpenHtmlReport = (sheetId) => {
+    window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html`, '_blank');
+  };
+
+  // Handlers CRUD
   const handleCreateOperator = async (opData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/operators`, {
@@ -131,7 +165,6 @@ export default function App() {
     localStorage.setItem('gestor_operators', JSON.stringify(updated));
   };
 
-  // --- CRUD PIEZAS ---
   const handleCreatePart = async (partData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/parts`, {
@@ -170,7 +203,6 @@ export default function App() {
     localStorage.setItem('gestor_parts', JSON.stringify(updated));
   };
 
-  // --- CRUD MÁQUINAS ---
   const handleCreateMachine = async (machineData) => {
     try {
       const res = await fetch(`${API_BASE_URL}/machines`, {
@@ -224,74 +256,34 @@ export default function App() {
     localStorage.setItem('gestor_machines', JSON.stringify(updated));
   };
 
-  // --- PRODUCCIÓN ---
-  const handleCreateProduction = async (prodData) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/productions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(prodData)
-      });
-      if (res.ok) { setIsProductionModalOpen(false); fetchData(); return; }
-    } catch (e) {}
-
-    const op = operators.find(o => o.id === prodData.operator_id);
-    const mac = machines.find(m => m.id === prodData.machine_id);
-    const part = parts.find(p => p.id === prodData.part_id);
-
-    const newProd = { ...prodData, id: Date.now(), operator: op, machine: mac, part: part };
-    const updated = [newProd, ...productions];
-    setProductions(updated);
-    localStorage.setItem('gestor_productions', JSON.stringify(updated));
-    setIsProductionModalOpen(false);
-  };
-
-  const handleOpenHtmlReport = (prodId) => {
-    window.open(`${API_BASE_URL}/productions/${prodId}/html`, '_blank');
-  };
-
-  // Metrics
-  const disponibles = machines.filter(m => m.status === 'disponible').length;
-  const enUso = machines.filter(m => m.status === 'en_uso').length;
-  const mantenimiento = machines.filter(m => m.status === 'mantenimiento').length;
-
   return (
     <div className="app-wrapper">
       {/* Header */}
       <header className="header-bar">
         <h1 className="brand-title">
-          <Cpu color="#60a5fa" size={24} /> Gestor de Turnos & CRUD
+          <Cpu color="#60a5fa" size={24} /> Gestor de Turnos & Planta
         </h1>
         <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}>
           <RefreshCw size={14} className={loading ? 'spin' : ''} />
         </button>
       </header>
 
-      {/* Summary Pills */}
-      <div className="summary-pills" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="pill-card available">
-          <span className="pill-num">{disponibles}</span>
-          <span className="pill-label">Libres</span>
-        </div>
-        <div className="pill-card in-use">
-          <span className="pill-num">{enUso}</span>
-          <span className="pill-label">En Uso</span>
-        </div>
-        <div className="pill-card maintenance">
-          <span className="pill-num">{mantenimiento}</span>
-          <span className="pill-label">Taller</span>
-        </div>
-        <div className="pill-card" style={{ color: '#a78bfa' }}>
-          <span className="pill-num" style={{ color: '#a78bfa' }}>{productions.length}</span>
-          <span className="pill-label">Envíos</span>
-        </div>
-      </div>
+      {/* Main Active Tab View */}
+      {activeTab === 'sheet' && (
+        <ShiftProductionSheet 
+          machines={machines}
+          operators={operators}
+          parts={parts}
+          currentSheet={currentSheet}
+          onSaveSheet={handleSaveSheet}
+          onOpenHtmlReport={handleOpenHtmlReport}
+        />
+      )}
 
-      {/* Main Tab Views */}
       {activeTab === 'machines' && (
         <>
           <div className="section-header">
-            <h2 className="section-title">Máquinas Operativas</h2>
+            <h2 className="section-title">Máquinas Registradas ({machines.length})</h2>
             <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setIsMachineModalOpen(true)}>
               <Plus size={14} /> Nueva
             </button>
@@ -302,7 +294,7 @@ export default function App() {
               <MachineCard 
                 key={m.id} 
                 machine={m} 
-                onAssignShift={() => setIsProductionModalOpen(true)}
+                onAssignShift={() => setActiveTab('sheet')}
                 onCompleteShift={() => handleChangeStatus(m.id, 'disponible')}
                 onChangeStatus={handleChangeStatus}
               />
@@ -317,14 +309,6 @@ export default function App() {
 
       {activeTab === 'parts' && (
         <PartsList parts={parts} onCreatePart={handleCreatePart} />
-      )}
-
-      {activeTab === 'production' && (
-        <ProductionList 
-          productions={productions} 
-          onOpenNewProduction={() => setIsProductionModalOpen(true)}
-          onOpenHtmlReport={handleOpenHtmlReport}
-        />
       )}
 
       {activeTab === 'crud' && (
@@ -347,16 +331,6 @@ export default function App() {
       {/* Modals */}
       {isMachineModalOpen && (
         <MachineModal onClose={() => setIsMachineModalOpen(false)} onSubmit={handleCreateMachine} />
-      )}
-
-      {isProductionModalOpen && (
-        <ProductionModal 
-          machines={machines}
-          operators={operators}
-          parts={parts}
-          onClose={() => setIsProductionModalOpen(false)}
-          onSubmit={handleCreateProduction}
-        />
       )}
 
       {/* Bottom Navigation Bar */}

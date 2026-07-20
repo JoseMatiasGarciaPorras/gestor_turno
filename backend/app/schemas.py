@@ -5,7 +5,7 @@ from datetime import datetime, date
 # --- OPERATOR SCHEMAS ---
 class OperatorBase(BaseModel):
     name: str
-    operator_number: str  # Número de operario manual único
+    operator_number: str
 
 class OperatorCreate(OperatorBase):
     pass
@@ -20,7 +20,7 @@ class OperatorResponse(OperatorBase):
 # --- PART SCHEMAS ---
 class PartBase(BaseModel):
     name: str
-    references: str  # Referencias alfanuméricas únicas (ej: REF-A100, REF-B200)
+    references: str
     description: Optional[str] = None
 
 class PartCreate(PartBase):
@@ -36,7 +36,7 @@ class PartResponse(PartBase):
 # --- MACHINE SCHEMAS ---
 class MachineBase(BaseModel):
     name: str
-    machine_number: str  # Número/Código de máquina
+    machine_number: str
     category: Optional[str] = "General"
     location: Optional[str] = None
 
@@ -54,53 +54,54 @@ class MachineResponse(MachineBase):
     class Config:
         from_attributes = True
 
-# --- SHIFT SCHEMAS ---
-class ShiftBase(BaseModel):
-    operator_name: str
+# --- PRODUCTION ITEM SCHEMAS ---
+class ProductionItemBase(BaseModel):
+    machine_id: Optional[int] = None
+    machine_name_manual: Optional[str] = None
+    machine_side: Optional[str] = "IZQ"  # IZQ, DCH
+    
+    part_id: Optional[int] = None
+    part_reference_manual: Optional[str] = None
+    
+    quantity_ok: int = 0
+    quantity_ko: int = 0
+    
     operator_id: Optional[int] = None
-    duration_minutes: Optional[int] = 60
-    notes: Optional[str] = None
+    operator_name_manual: Optional[str] = None
+    operator_number_manual: Optional[str] = None
+    
+    is_montaje: bool = False
 
-class ShiftCreate(ShiftBase):
-    machine_id: int
-
-class ShiftResponse(ShiftBase):
-    id: int
-    machine_id: int
-    operator_id: Optional[int] = None
-    start_time: datetime
-    end_time: Optional[datetime] = None
-    status: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-# --- PRODUCTION SCHEMAS ---
-class ProductionBase(BaseModel):
-    production_date: date
-    shift_name: str  # Turno
-    supervisor: str  # Encargado
-    machine_id: int
-    operator_id: int
-    part_id: int
-    quantity_produced: int
-    notes: Optional[str] = None
-
-class ProductionCreate(ProductionBase):
+class ProductionItemCreate(ProductionItemBase):
     pass
 
-class ProductionResponse(ProductionBase):
+class ProductionItemResponse(ProductionItemBase):
     id: int
-    created_at: datetime
     machine: Optional[MachineResponse] = None
-    operator: Optional[OperatorResponse] = None
     part: Optional[PartResponse] = None
+    operator: Optional[OperatorResponse] = None
 
     class Config:
         from_attributes = True
 
-# --- SUMMARY RESPONSE ---
+# --- SHIFT SHEET SCHEMAS ---
+class ShiftSheetBase(BaseModel):
+    production_date: date
+    shift_name: str
+    supervisor: str
+    incidents_notes: Optional[str] = None
+
+class ShiftSheetCreate(ShiftSheetBase):
+    items: List[ProductionItemCreate] = []
+
+class ShiftSheetResponse(ShiftSheetBase):
+    id: int
+    created_at: datetime
+    items: List[ProductionItemResponse] = []
+
+    class Config:
+        from_attributes = True
+
 class SummaryResponse(BaseModel):
     total_machines: int
     disponibles: int
@@ -108,4 +109,4 @@ class SummaryResponse(BaseModel):
     mantenimiento: int
     total_operators: int
     total_parts: int
-    total_productions: int
+    total_sheets: int
