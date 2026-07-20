@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Printer, Save, Calendar, Camera, Share2, Download, X, Cpu, Package, Search, Tag } from 'lucide-react';
+import { Plus, Trash2, Save, Calendar, Camera, Search, Cpu, Package } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
 export default function ShiftProductionSheet({ 
@@ -17,7 +17,7 @@ export default function ShiftProductionSheet({
   // Active autocomplete row ID
   const [activeSearchRowId, setActiveSearchRowId] = useState(null);
 
-  // Flattened references list with part names
+  // Flattened references list with part names and side classification
   const availableReferences = [];
   parts.forEach(p => {
     if (p.references_list && p.references_list.length > 0) {
@@ -85,7 +85,7 @@ export default function ShiftProductionSheet({
     const newRow = {
       id: Date.now(),
       machine_name: defaultMac,
-      machine_side: defaultRefObj.side_type === 'DCH' ? 'DCH' : 'IZQ',
+      machine_side: defaultRefObj.side_type || 'IZQ',
       part_name: defaultRefObj.part_name,
       part_reference: defaultRefObj.code,
       quantity_ok: 0,
@@ -126,7 +126,7 @@ export default function ShiftProductionSheet({
           ...item,
           part_name: refObj.part_name,
           part_reference: refObj.code,
-          machine_side: refObj.side_type === 'DCH' ? 'DCH' : (refObj.side_type === 'IZQ' ? 'IZQ' : item.machine_side)
+          machine_side: refObj.side_type || 'Única'
         };
       }
       return item;
@@ -305,8 +305,6 @@ export default function ShiftProductionSheet({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
         {plantaItems.map((item) => {
-          // Filtrar sugerencias de autocompletado para esta fila
-          const searchText = (item.part_name + " " + item.part_reference).toLowerCase();
           const filteredSuggestions = availableReferences.filter(r => 
             r.part_name.toLowerCase().includes(item.part_name.toLowerCase()) ||
             r.code.toLowerCase().includes(item.part_reference.toLowerCase()) ||
@@ -316,36 +314,20 @@ export default function ShiftProductionSheet({
           return (
             <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
               
+              {/* CABECERA LIMPIA DE FILA: MÁQUINA + BOTÓN DE BORRAR */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-                  <select 
-                    className="form-select" 
-                    style={{ minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
-                    value={item.machine_name} 
-                    onChange={(e) => updateRow(item.id, 'machine_name', e.target.value)}
-                  >
-                    {machines.length > 0 ? machines.map(m => (
-                      <option key={m.id} value={m.name}>{m.name}</option>
-                    )) : (
-                      <option value={item.machine_name}>{item.machine_name}</option>
-                    )}
-                  </select>
-
-                  <button 
-                    className="btn"
-                    style={{ 
-                      minHeight: '38px', 
-                      padding: '0 12px', 
-                      fontSize: '0.8rem', 
-                      fontWeight: 'bold',
-                      background: item.machine_side === 'IZQ' ? '#2563eb' : '#d97706',
-                      color: 'white'
-                    }}
-                    onClick={() => updateRow(item.id, 'machine_side', item.machine_side === 'IZQ' ? 'DCH' : 'IZQ')}
-                  >
-                    LADO: {item.machine_side}
-                  </button>
-                </div>
+                <select 
+                  className="form-select" 
+                  style={{ flex: 1, minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
+                  value={item.machine_name} 
+                  onChange={(e) => updateRow(item.id, 'machine_name', e.target.value)}
+                >
+                  {machines.length > 0 ? machines.map(m => (
+                    <option key={m.id} value={m.name}>{m.name}</option>
+                  )) : (
+                    <option value={item.machine_name}>{item.machine_name}</option>
+                  )}
+                </select>
 
                 <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px', flex: '0 0 auto' }} onClick={() => removeRow(item.id)}>
                   <Trash2 size={15} />
@@ -377,7 +359,7 @@ export default function ShiftProductionSheet({
                   </div>
                 </div>
 
-                {/* DESPLEGABLE DE SUGERENCIAS DE AUTOCOMPLETADO EN VIVO */}
+                {/* DESPLEGABLE DE SUGERENCIAS */}
                 {activeSearchRowId === item.id && (
                   <div style={{ 
                     position: 'absolute', 
