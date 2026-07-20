@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, RefreshCw, Plus } from 'lucide-react';
+import { Cpu, RefreshCw } from 'lucide-react';
 import ShiftProductionSheet from './components/ShiftProductionSheet';
-import MachineCard from './components/MachineCard';
-import MachineModal from './components/MachineModal';
-import OperatorsList from './components/OperatorsList';
 import PartsList from './components/PartsList';
 import AdminCrudView from './components/AdminCrudView';
 import BottomNav from './components/BottomNav';
@@ -17,12 +14,10 @@ export default function App() {
   const [shiftSheets, setShiftSheets] = useState([]);
   const [currentSheet, setCurrentSheet] = useState(null);
   
-  // Vista principal por defecto: 'sheet' (Parte Digital de Producción por Turno)
+  // Vistas principales: 'sheet' | 'parts' | 'crud'
   const [activeTab, setActiveTab] = useState('sheet'); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -115,7 +110,6 @@ export default function App() {
       }
     } catch (e) {}
 
-    // Fallback local
     const newSheet = { ...sheetPayload, id: Date.now() };
     setCurrentSheet(newSheet);
     localStorage.setItem('gestor_current_sheet', JSON.stringify(newSheet));
@@ -210,12 +204,11 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(machineData)
       });
-      if (res.ok) { setIsMachineModalOpen(false); fetchData(); return; }
+      if (res.ok) { fetchData(); return; }
     } catch (e) {}
     const updated = [...machines, { ...machineData, id: Date.now() }];
     setMachines(updated);
     localStorage.setItem('gestor_machines', JSON.stringify(updated));
-    setIsMachineModalOpen(false);
   };
 
   const handleUpdateMachine = async (id, machineData) => {
@@ -238,20 +231,6 @@ export default function App() {
       if (res.ok) { fetchData(); return; }
     } catch (e) {}
     const updated = machines.filter(m => m.id !== id);
-    setMachines(updated);
-    localStorage.setItem('gestor_machines', JSON.stringify(updated));
-  };
-
-  const handleChangeStatus = async (machineId, newStatus) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/machines/${machineId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (res.ok) { fetchData(); return; }
-    } catch (e) {}
-    const updated = machines.map(m => m.id === machineId ? { ...m, status: newStatus } : m);
     setMachines(updated);
     localStorage.setItem('gestor_machines', JSON.stringify(updated));
   };
@@ -280,33 +259,6 @@ export default function App() {
         />
       )}
 
-      {activeTab === 'machines' && (
-        <>
-          <div className="section-header">
-            <h2 className="section-title">Máquinas Registradas ({machines.length})</h2>
-            <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setIsMachineModalOpen(true)}>
-              <Plus size={14} /> Nueva
-            </button>
-          </div>
-
-          <div className="machine-grid">
-            {machines.map(m => (
-              <MachineCard 
-                key={m.id} 
-                machine={m} 
-                onAssignShift={() => setActiveTab('sheet')}
-                onCompleteShift={() => handleChangeStatus(m.id, 'disponible')}
-                onChangeStatus={handleChangeStatus}
-              />
-            ))}
-          </div>
-        </>
-      )}
-
-      {activeTab === 'operators' && (
-        <OperatorsList operators={operators} onCreateOperator={handleCreateOperator} />
-      )}
-
       {activeTab === 'parts' && (
         <PartsList parts={parts} onCreatePart={handleCreatePart} />
       )}
@@ -326,11 +278,6 @@ export default function App() {
           onUpdatePart={handleUpdatePart}
           onDeletePart={handleDeletePart}
         />
-      )}
-
-      {/* Modals */}
-      {isMachineModalOpen && (
-        <MachineModal onClose={() => setIsMachineModalOpen(false)} onSubmit={handleCreateMachine} />
       )}
 
       {/* Bottom Navigation Bar */}

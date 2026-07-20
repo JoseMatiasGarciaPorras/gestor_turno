@@ -1,5 +1,5 @@
 import React from 'react';
-import { ClipboardList, Cpu, UserCheck, Package, Settings } from 'lucide-react';
+import { ClipboardList, Package, Settings } from 'lucide-react';
 
 export default function BottomNav({ activeTab, setActiveTab }) {
   return (
@@ -10,22 +10,6 @@ export default function BottomNav({ activeTab, setActiveTab }) {
       >
         <ClipboardList />
         <span>Parte Turno</span>
-      </button>
-
-      <button 
-        className={`nav-item ${activeTab === 'machines' ? 'active' : ''}`}
-        onClick={() => setActiveTab('machines')}
-      >
-        <Cpu />
-        <span>Máquinas</span>
-      </button>
-
-      <button 
-        className={`nav-item ${activeTab === 'operators' ? 'active' : ''}`}
-        onClick={() => setActiveTab('operators')}
-      >
-        <UserCheck />
-        <span>Operarios</span>
       </button>
 
       <button 
