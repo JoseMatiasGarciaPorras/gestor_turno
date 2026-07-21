@@ -3,19 +3,19 @@ services:
   - type: web
     name: gestor-turno-backend
     env: python
+    plan: free
     region: frankfurt
     buildCommand: "cd backend && pip install -r requirements.txt"
     startCommand: "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: USE_SQLITE
         value: "true"
-      - key: PYTHON_VERSION
-        value: "3.11.0"
 
   # --- FRONTEND REACT / VITE ---
   - type: web
     name: gestor-turno-frontend
     env: static
+    plan: free
     buildCommand: "cd frontend && npm install && npm run build"
     staticPublishPath: "./frontend/dist"
     envVars:
