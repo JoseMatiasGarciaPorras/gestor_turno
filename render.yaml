@@ -1,0 +1,27 @@
+services:
+  # --- BACKEND FASTAPI ---
+  - type: web
+    name: gestor-turno-backend
+    env: python
+    region: frankfurt # o oregon
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: USE_SQLITE
+        value: "true"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+  # --- FRONTEND REACT / VITE ---
+  - type: web
+    name: gestor-turno-frontend
+    env: static
+    buildCommand: "cd frontend && npm install && npm run build"
+    staticPublishPath: "./frontend/dist"
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: gestor-turno-backend
+          property: url
+        suffix: /api
