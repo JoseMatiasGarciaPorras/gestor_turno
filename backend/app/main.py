@@ -21,7 +21,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Gestor de Turnos y Planta de Producción API",
     description="API RESTful Mobile-First para control de Máquinas, Operarios, Piezas y Partes de Producción Diarios.",
-    version="3.5.0"
+    version="1.0.0-beta.1"
 )
 
 app.add_middleware(

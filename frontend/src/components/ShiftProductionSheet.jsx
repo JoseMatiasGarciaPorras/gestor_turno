@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Save, Calendar, Camera, Search, Cpu, Package } from 'lucide-react';
+import { Plus, Trash2, Save, Calendar, Camera, Search, Cpu, Package, Tag, CheckCircle, AlertOctagon } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
-// Normalizador súper seguro de referencias de piezas
+// Normalizador seguro de referencias de piezas
 export function getNormalizedReferences(part) {
   if (!part) return [];
   
@@ -42,221 +42,328 @@ export default function ShiftProductionSheet({
   // Active autocomplete row ID
   const [activeSearchRowId, setActiveSearchRowId] = useState(null);
 
-  // Extraer lista plana de referencias clasificadas con protección de tipo
-  const availableReferences = [];
-  parts.forEach(p => {
-    const refs = getNormalizedReferences(p);
-    if (refs.length > 0) {
-      refs.forEach(r => {
-        availableReferences.push({
-          part_name: String(p.name || 'Pieza General'),
-          code: String(r.code || ''),
-          side_type: String(r.side_type || 'Única')
-        });
-      });
-    } else if (p.name) {
-      availableReferences.push({
-        part_name: String(p.name),
-        code: 'S/N',
-        side_type: 'Única'
-      });
-    }
-  });
-
-  // Rows state
-  const [items, setItems] = useState([
+  // Initial machine entries with sub-reference rows
+  const [machineEntries, setMachineEntries] = useState([
     {
-      id: Date.now(),
+      id: 101,
       machine_name: 'RB1000',
-      machine_side: 'IZQ',
       part_name: 'Pieza 90100108',
-      part_reference: '90100108',
-      quantity_ok: 106,
-      quantity_ko: 0,
-      operator_number: '247',
       operator_name: 'Natalia',
-      is_montaje: false
+      operator_number: '247',
+      is_montaje: false,
+      references: [
+        { id: 1001, code: '90100108', side_type: 'Única', quantity_ok: 106, quantity_ko: 0 }
+      ]
     },
     {
-      id: Date.now() + 1,
+      id: 102,
       machine_name: 'NS1500',
-      machine_side: 'IZQ',
       part_name: 'Conjunto Espejo Retrovisor NS1500',
-      part_reference: 'L381154',
-      quantity_ok: 374,
-      quantity_ko: 0,
-      operator_number: '214',
       operator_name: 'Diantra',
-      is_montaje: false
+      operator_number: '214',
+      is_montaje: false,
+      references: [
+        { id: 1002, code: 'L381154', side_type: 'IZQ', quantity_ok: 374, quantity_ko: 2 },
+        { id: 1003, code: 'L381153', side_type: 'DCH', quantity_ok: 370, quantity_ko: 4 }
+      ]
     },
     {
-      id: Date.now() + 2,
+      id: 103,
       machine_name: 'ENGEL 550',
-      machine_side: 'IZQ',
       part_name: 'Moldura Frontal ENGEL 550',
-      part_reference: 'L802189',
-      quantity_ok: 796,
-      quantity_ko: 0,
-      operator_number: '237',
       operator_name: 'Rocío',
-      is_montaje: false
+      operator_number: '237',
+      is_montaje: false,
+      references: [
+        { id: 1004, code: 'L802189', side_type: 'IZQ', quantity_ok: 796, quantity_ko: 0 },
+        { id: 1005, code: 'L802190', side_type: 'DCH', quantity_ok: 790, quantity_ko: 1 }
+      ]
     }
   ]);
 
-  const addRow = (isMontaje = false) => {
+  // Items de Montaje
+  const [montajeEntries, setMontajeEntries] = useState([
+    {
+      id: 201,
+      part_reference: 'IS6170080-02',
+      quantity_ok: 150,
+      operator_name: 'David',
+      operator_number: '280'
+    }
+  ]);
+
+  // Añadir nueva Máquina
+  const addMachineEntry = () => {
     const defaultMac = machines[0]?.name || 'ENGEL 300';
-    const defaultRefObj = availableReferences[0] || { part_name: 'Pieza General', code: '90100108', side_type: 'IZQ' };
+    const defaultPart = parts[0] || { name: 'Pieza General', references_list: [{ code: '90100108', side_type: 'Única' }] };
     const defaultOp = operators[0] || { name: 'Natalia', operator_number: '247' };
 
-    const newRow = {
+    const normRefs = getNormalizedReferences(defaultPart);
+    const initialSubRefs = normRefs.length > 0 
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now(), code: '90100108', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+    const newEntry = {
       id: Date.now(),
       machine_name: defaultMac,
-      machine_side: defaultRefObj.side_type || 'IZQ',
-      part_name: defaultRefObj.part_name,
-      part_reference: defaultRefObj.code,
-      quantity_ok: 0,
-      quantity_ko: 0,
-      operator_number: defaultOp.operator_number,
+      part_name: defaultPart.name,
       operator_name: defaultOp.name,
-      is_montaje: isMontaje
+      operator_number: defaultOp.operator_number,
+      is_montaje: false,
+      references: initialSubRefs
     };
 
-    setItems([...items, newRow]);
+    setMachineEntries([...machineEntries, newEntry]);
   };
 
-  const removeRow = (id) => {
-    setItems(items.filter(item => item.id !== id));
+  const removeMachineEntry = (id) => {
+    setMachineEntries(machineEntries.filter(m => m.id !== id));
   };
 
-  const updateRow = (id, field, value) => {
-    setItems(items.map(item => {
-      if (item.id === id) {
-        const updated = { ...item, [field]: value };
-        
+  const updateMachineField = (id, field, value) => {
+    setMachineEntries(machineEntries.map(m => {
+      if (m.id === id) {
+        const updated = { ...m, [field]: value };
         if (field === 'operator_name') {
           const matchedOp = operators.find(o => o.name === value);
-          if (matchedOp) {
-            updated.operator_number = matchedOp.operator_number;
-          }
+          if (matchedOp) updated.operator_number = matchedOp.operator_number;
         }
         return updated;
       }
-      return item;
+      return m;
     }));
   };
 
-  const selectAutocompleteRef = (rowId, refObj) => {
-    setItems(items.map(item => {
-      if (item.id === rowId) {
+  // Seleccionar Pieza para una Máquina y auto-cargar TODAS sus referencias
+  const selectPartForMachine = (machineId, selectedPart) => {
+    const normRefs = getNormalizedReferences(selectedPart);
+    const newSubRefs = normRefs.length > 0 
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now(), code: 'REF-MANUAL', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+    setMachineEntries(machineEntries.map(m => {
+      if (m.id === machineId) {
         return {
-          ...item,
-          part_name: String(refObj.part_name || ''),
-          part_reference: String(refObj.code || ''),
-          machine_side: String(refObj.side_type || 'Única')
+          ...m,
+          part_name: selectedPart.name,
+          references: newSubRefs
         };
       }
-      return item;
+      return m;
     }));
     setActiveSearchRowId(null);
   };
 
-  const adjustQty = (id, field, delta) => {
-    setItems(items.map(item => {
-      if (item.id === id) {
-        const val = Math.max(0, (item[field] || 0) + delta);
-        return { ...item, [field]: val };
+  // Añadir una sub-referencia extra a una máquina
+  const addSubReference = (machineId, side_type = 'Única') => {
+    setMachineEntries(machineEntries.map(m => {
+      if (m.id === machineId) {
+        return {
+          ...m,
+          references: [
+            ...m.references,
+            { id: Date.now(), code: '', side_type: side_type, quantity_ok: 0, quantity_ko: 0 }
+          ]
+        };
       }
-      return item;
+      return m;
     }));
   };
 
-  // Generar Imagen PNG
+  const removeSubReference = (machineId, subRefId) => {
+    setMachineEntries(machineEntries.map(m => {
+      if (m.id === machineId) {
+        if (m.references.length <= 1) return m; // Al menos mantener 1
+        return {
+          ...m,
+          references: m.references.filter(r => r.id !== subRefId)
+        };
+      }
+      return m;
+    }));
+  };
+
+  const updateSubRefQty = (machineId, subRefId, field, value) => {
+    setMachineEntries(machineEntries.map(m => {
+      if (m.id === machineId) {
+        return {
+          ...m,
+          references: m.references.map(r => {
+            if (r.id === subRefId) {
+              return { ...r, [field]: value };
+            }
+            return r;
+          })
+        };
+      }
+      return m;
+    }));
+  };
+
+  const adjustSubRefQty = (machineId, subRefId, field, delta) => {
+    setMachineEntries(machineEntries.map(m => {
+      if (m.id === machineId) {
+        return {
+          ...m,
+          references: m.references.map(r => {
+            if (r.id === subRefId) {
+              const currentVal = parseInt(r[field]) || 0;
+              return { ...r, [field]: Math.max(0, currentVal + delta) };
+            }
+            return r;
+          })
+        };
+      }
+      return m;
+    }));
+  };
+
+  // Montaje Handlers
+  const addMontajeEntry = () => {
+    setMontajeEntries([
+      ...montajeEntries,
+      { id: Date.now(), part_reference: '', quantity_ok: 0, operator_name: operators[0]?.name || '', operator_number: operators[0]?.operator_number || '' }
+    ]);
+  };
+
+  const removeMontajeEntry = (id) => {
+    setMontajeEntries(montajeEntries.filter(m => m.id !== id));
+  };
+
+  const updateMontajeEntry = (id, field, value) => {
+    setMontajeEntries(montajeEntries.map(m => {
+      if (m.id === id) {
+        const updated = { ...m, [field]: value };
+        if (field === 'operator_name') {
+          const matched = operators.find(o => o.name === value);
+          if (matched) updated.operator_number = matched.operator_number;
+        }
+        return updated;
+      }
+      return m;
+    }));
+  };
+
+  // Calcular métricas totales acumuladas del turno
+  let totalOk = 0;
+  let totalKo = 0;
+
+  machineEntries.forEach(m => {
+    m.references.forEach(r => {
+      totalOk += parseInt(r.quantity_ok || 0);
+      totalKo += parseInt(r.quantity_ko || 0);
+    });
+  });
+
+  montajeEntries.forEach(m => {
+    totalOk += parseInt(m.quantity_ok || 0);
+  });
+
+  // Modal para previsualizar y descargar la imagen generada
+  const [previewImage, setPreviewImage] = useState(null);
+
+  // Generar Imagen PNG para el Supervisor
   const handleGenerateImage = async () => {
     if (!printSheetRef.current) return;
     setGeneratingImage(true);
 
     try {
       const element = printSheetRef.current;
-      element.style.display = 'block';
       
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        logging: false
       });
 
-      element.style.display = 'none';
-
-      const image = canvas.toDataURL("image/png");
-      const filename = `parte_produccion_${productionDate}_${shiftName}.png`;
-
-      if (navigator.canShare && navigator.share) {
-        canvas.toBlob(async (blob) => {
-          if (blob) {
-            const file = new File([blob], filename, { type: 'image/png' });
-            if (navigator.canShare({ files: [file] })) {
-              try {
-                await navigator.share({
-                  files: [file],
-                  title: `Parte de Producción - ${productionDate}`,
-                  text: `Parte de producción del turno ${shiftName}. Supervisor: ${supervisor}`
-                });
-                setGeneratingImage(false);
-                return;
-              } catch (shareErr) {}
-            }
-          }
-          downloadDataUrl(image, filename);
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          alert("Error al procesar los datos de la imagen.");
+          return;
+        }
+        const blobUrl = URL.createObjectURL(blob);
+        const filename = `parte_produccion_${productionDate}_${shiftName}.png`;
+        
+        setPreviewImage({
+          blobUrl,
+          filename,
+          blob
         });
-      } else {
-        downloadDataUrl(image, filename);
-      }
+      }, 'image/png');
+
     } catch (err) {
       console.error("Error generando imagen PNG:", err);
-      alert("No se pudo generar la imagen.");
+      alert("No se pudo generar la imagen. Revisa los datos ingresados.");
     } finally {
       setGeneratingImage(false);
     }
   };
 
-  const downloadDataUrl = (dataUrl, filename) => {
+  const handleDownloadImage = (imgObj) => {
+    if (!imgObj || !imgObj.blobUrl) return;
     const link = document.createElement('a');
-    link.href = dataUrl;
-    link.download = filename;
+    link.href = imgObj.blobUrl;
+    link.download = imgObj.filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    alert(`¡Imagen PNG guardada como "${filename}"!`);
   };
 
   const handleSave = () => {
+    // Transformar a lista plana de ítems para enviar al servidor
+    const flatItems = [];
+
+    machineEntries.forEach(m => {
+      m.references.forEach(r => {
+        flatItems.push({
+          machine_name_manual: m.machine_name,
+          machine_side: r.side_type,
+          part_reference_manual: r.code,
+          quantity_ok: parseInt(r.quantity_ok || 0),
+          quantity_ko: parseInt(r.quantity_ko || 0),
+          operator_number_manual: m.operator_number,
+          operator_name_manual: m.operator_name,
+          is_montaje: false
+        });
+      });
+    });
+
+    montajeEntries.forEach(m => {
+      flatItems.push({
+        machine_name_manual: 'MONTAJE',
+        machine_side: 'IZQ',
+        part_reference_manual: m.part_reference,
+        quantity_ok: parseInt(m.quantity_ok || 0),
+        quantity_ko: 0,
+        operator_number_manual: m.operator_number,
+        operator_name_manual: m.operator_name,
+        is_montaje: true
+      });
+    });
+
     const payload = {
       production_date: productionDate,
       shift_name: shiftName,
       supervisor: supervisor,
       incidents_notes: incidentsNotes,
-      items: items.map(item => ({
-        machine_name_manual: item.machine_name,
-        machine_side: item.machine_side,
-        part_reference_manual: item.part_reference,
-        quantity_ok: parseInt(item.quantity_ok || 0),
-        quantity_ko: parseInt(item.quantity_ko || 0),
-        operator_number_manual: item.operator_number,
-        operator_name_manual: item.operator_name,
-        is_montaje: item.is_montaje
-      }))
+      items: flatItems
     };
     onSaveSheet(payload);
   };
 
-  const plantaItems = items.filter(i => !i.is_montaje);
-  const montajeItems = items.filter(i => i.is_montaje);
-  const totalOk = items.reduce((acc, i) => acc + (parseInt(i.quantity_ok) || 0), 0);
-  const totalKo = items.reduce((acc, i) => acc + (parseInt(i.quantity_ko) || 0), 0);
+  const getSideColor = (type) => {
+    switch(type) {
+      case 'IZQ': return { bg: 'rgba(59, 130, 246, 0.2)', text: '#60a5fa', border: 'rgba(59, 130, 246, 0.4)' };
+      case 'DCH': return { bg: 'rgba(245, 158, 11, 0.2)', text: '#f59e0b', border: 'rgba(245, 158, 11, 0.4)' };
+      case 'Única': return { bg: 'rgba(16, 185, 129, 0.2)', text: '#10b981', border: 'rgba(16, 185, 129, 0.4)' };
+      default: return { bg: 'rgba(168, 85, 247, 0.2)', text: '#c084fc', border: 'rgba(168, 85, 247, 0.4)' };
+    }
+  };
 
   return (
     <div style={{ marginTop: '10px' }}>
-      {/* HEADER */}
+      {/* HEADER CONTROLS */}
       <div style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: 'var(--radius-lg)', marginBottom: '16px', border: '1px solid var(--border-color)', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', borderBottom: '1px dashed var(--border-color)', paddingBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
           <h2 style={{ fontSize: '1.15rem', fontWeight: 'bold', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -322,74 +429,86 @@ export default function ShiftProductionSheet({
       {/* MÁQUINAS EN PLANTA */}
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Cpu size={18} color="#60a5fa" /> PRODUCCIÓN MÁQUINAS EN PLANTA ({plantaItems.length})
+          <Cpu size={18} color="#60a5fa" /> PRODUCCIÓN MÁQUINAS EN PLANTA ({machineEntries.length})
         </h3>
-        <button className="btn btn-secondary" style={{ minHeight: '34px', padding: '4px 10px', fontSize: '0.78rem' }} onClick={() => addRow(false)}>
+        <button className="btn btn-secondary" style={{ minHeight: '34px', padding: '4px 10px', fontSize: '0.78rem' }} onClick={addMachineEntry}>
           <Plus size={14} /> Añadir Máquina
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-        {plantaItems.map((item) => {
-          const currentRefText = String(item.part_reference || '').toLowerCase();
-          const currentNameText = String(item.part_name || '').toLowerCase();
-
-          const filteredSuggestions = availableReferences.filter(r => 
-            r.part_name.toLowerCase().includes(currentNameText) ||
-            r.code.toLowerCase().includes(currentRefText) ||
-            r.part_name.toLowerCase().includes(currentRefText)
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+        {machineEntries.map((m) => {
+          const filteredParts = parts.filter(p => 
+            p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase())
           );
 
           return (
-            <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
+            <div key={m.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: 'var(--radius-lg)' }}>
               
-              {/* CABECERA DE FILA: MÁQUINA + BORRAR */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                <select 
-                  className="form-select" 
-                  style={{ flex: 1, minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
-                  value={item.machine_name} 
-                  onChange={(e) => updateRow(item.id, 'machine_name', e.target.value)}
-                >
-                  {machines.length > 0 ? machines.map(m => (
-                    <option key={m.id} value={m.name}>{m.name}</option>
-                  )) : (
-                    <option value={item.machine_name}>{item.machine_name}</option>
-                  )}
-                </select>
+              {/* CABECERA DE LA MÁQUINA: SELECTOR DE MÁQUINA + OPERARIO + BOTÓN DE BORRAR */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.7rem' }}>MÁQUINA</label>
+                  <select 
+                    className="form-select" 
+                    style={{ minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
+                    value={m.machine_name} 
+                    onChange={(e) => updateMachineField(m.id, 'machine_name', e.target.value)}
+                  >
+                    {machines.length > 0 ? machines.map(mac => (
+                      <option key={mac.id} value={mac.name}>{mac.name}</option>
+                    )) : (
+                      <option value={m.machine_name}>{m.machine_name}</option>
+                    )}
+                  </select>
+                </div>
 
-                <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px', flex: '0 0 auto' }} onClick={() => removeRow(item.id)}>
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MÁQUINA</label>
+                  <select 
+                    className="form-select" 
+                    style={{ minHeight: '40px' }}
+                    value={m.operator_name}
+                    onChange={(e) => updateMachineField(m.id, 'operator_name', e.target.value)}
+                  >
+                    {operators.map(op => (
+                      <option key={op.id} value={op.name}>
+                        Nº {op.operator_number} - {op.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <button className="btn btn-danger" style={{ minHeight: '40px', padding: '0 10px', marginTop: '16px' }} onClick={() => removeMachineEntry(m.id)}>
                   <Trash2 size={15} />
                 </button>
               </div>
 
-              {/* INPUT DE AUTOCOMPLETADO EN VIVO DE PIEZA Y REFERENCIA */}
-              <div style={{ position: 'relative' }}>
-                <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>PIEZA Y REFERENCIA ASIGNADA</span>
-                  {item.part_name && <span style={{ color: '#60a5fa', fontStyle: 'italic' }}>{item.part_name}</span>}
+              {/* SELECTOR AUTOCOMPLETADO DE PIEZA ASIGNADA */}
+              <div style={{ position: 'relative', borderTop: '1px border-color', paddingTop: '10px' }}>
+                <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 'bold', color: '#60a5fa' }}>PIEZA ASIGNADA A LA MÁQUINA</span>
+                  <span style={{ fontStyle: 'italic', color: '#93c5fd' }}>{m.part_name}</span>
                 </label>
-                
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <input 
-                      type="text"
-                      className="form-input" 
-                      style={{ minHeight: '42px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', paddingRight: '32px' }}
-                      placeholder="Escribe pieza o ref (ej. Espejo, 90100108, L381)..."
-                      value={String(item.part_reference || '')}
-                      onFocus={() => setActiveSearchRowId(item.id)}
-                      onChange={(e) => {
-                        updateRow(item.id, 'part_reference', e.target.value);
-                        setActiveSearchRowId(item.id);
-                      }}
-                    />
-                    <Search size={16} color="#94a3b8" style={{ position: 'absolute', right: '10px', top: '13px' }} />
-                  </div>
+
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="text" 
+                    className="form-input"
+                    style={{ minHeight: '42px', fontWeight: 'bold', color: '#60a5fa', paddingRight: '32px' }}
+                    placeholder="Escribe el nombre de la pieza (ej. Espejo, Moldura)..."
+                    value={m.part_name}
+                    onFocus={() => setActiveSearchRowId(m.id)}
+                    onChange={(e) => {
+                      updateMachineField(m.id, 'part_name', e.target.value);
+                      setActiveSearchRowId(m.id);
+                    }}
+                  />
+                  <Search size={16} color="#94a3b8" style={{ position: 'absolute', right: '10px', top: '13px' }} />
                 </div>
 
-                {/* DESPLEGABLE DE SUGERENCIAS EN VIVO */}
-                {activeSearchRowId === item.id && (
+                {/* DESPLEGABLE AUTOCOMPLETADO DE PIEZAS */}
+                {activeSearchRowId === m.id && (
                   <div style={{ 
                     position: 'absolute', 
                     top: '100%', 
@@ -405,94 +524,124 @@ export default function ShiftProductionSheet({
                     marginTop: '4px'
                   }}>
                     <div style={{ padding: '6px 10px', fontSize: '0.7rem', color: '#94a3b8', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>Sugerencias Coincidentes ({filteredSuggestions.length})</span>
+                      <span>Seleccionar Pieza Coincidente ({filteredParts.length})</span>
                       <button style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer' }} onClick={() => setActiveSearchRowId(null)}>Cerrar</button>
                     </div>
 
-                    {filteredSuggestions.length > 0 ? (
-                      filteredSuggestions.map((sug, sIdx) => (
-                        <div 
-                          key={sIdx}
-                          style={{ 
-                            padding: '10px 12px', 
-                            borderBottom: '1px solid rgba(255,255,255,0.05)', 
-                            cursor: 'pointer',
-                            display: 'flex',
-                            justify: 'space-between',
-                            alignItems: 'center'
-                          }}
-                          onMouseDown={() => selectAutocompleteRef(item.id, sug)}
-                        >
-                          <div>
-                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{String(sug.part_name)}</div>
-                            <div style={{ fontSize: '0.78rem', fontFamily: 'monospace', color: '#c084fc' }}>Ref: {String(sug.code)}</div>
+                    {filteredParts.length > 0 ? (
+                      filteredParts.map((p, pIdx) => {
+                        const normRefs = getNormalizedReferences(p);
+                        return (
+                          <div 
+                            key={pIdx}
+                            style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
+                            onMouseDown={() => selectPartForMachine(m.id, p)}
+                          >
+                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{p.name}</div>
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                              {normRefs.map((r, rIdx) => (
+                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
+                                  {r.code} ({r.side_type})
+                                </span>
+                              ))}
+                            </div>
                           </div>
-                          <span style={{ 
-                            fontSize: '0.7rem', 
-                            fontWeight: 'bold', 
-                            padding: '2px 8px', 
-                            borderRadius: '10px',
-                            background: sug.side_type === 'IZQ' ? 'rgba(59, 130, 246, 0.2)' : (sug.side_type === 'DCH' ? 'rgba(245, 158, 11, 0.2)' : 'rgba(16, 185, 129, 0.2)'),
-                            color: sug.side_type === 'IZQ' ? '#60a5fa' : (sug.side_type === 'DCH' ? '#f59e0b' : '#10b981')
-                          }}>
-                            {String(sug.side_type)}
-                          </span>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
-                        Sin sugerencias coincidentes
+                        Sin piezas encontradas
                       </div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* SELECCIÓN DE OPERARIO Y CONTADORES */}
-              <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>OPERARIO ASIGNADO</label>
-                <select 
-                  className="form-select" 
-                  style={{ minHeight: '40px' }}
-                  value={item.operator_name}
-                  onChange={(e) => updateRow(item.id, 'operator_name', e.target.value)}
-                >
-                  {operators.map(op => (
-                    <option key={op.id} value={op.name}>
-                      Nº {op.operator_number} - {op.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(0,0,0,0.25)', padding: '10px', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 'bold', marginBottom: '4px' }}>PRODUCCIÓN OK</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input 
-                      type="number" 
-                      className="form-input" 
-                      style={{ minHeight: '42px', fontWeight: 'bold', fontSize: '1.1rem', color: '#10b981', textAlign: 'center' }}
-                      value={item.quantity_ok}
-                      onChange={(e) => updateRow(item.id, 'quantity_ok', e.target.value)}
-                    />
-                    <button className="btn btn-success" style={{ minHeight: '42px', padding: '0 10px' }} onClick={() => adjustQty(item.id, 'quantity_ok', 1)}>+1</button>
-                    <button className="btn btn-success" style={{ minHeight: '42px', padding: '0 10px' }} onClick={() => adjustQty(item.id, 'quantity_ok', 10)}>+10</button>
+              {/* SUB-BLOQUES POR CADA REFERENCIA DE LA PIEZA (IZQ, DCH, A/B, Única) */}
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Tag size={14} /> REFERENCIAS DE LA PIEZA ({m.references.length})
+                  </span>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button type="button" className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem', minHeight: '28px' }} onClick={() => addSubReference(m.id, 'IZQ')}>+ Sub IZQ</button>
+                    <button type="button" className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem', minHeight: '28px' }} onClick={() => addSubReference(m.id, 'DCH')}>+ Sub DCH</button>
                   </div>
                 </div>
 
-                <div>
-                  <div style={{ fontSize: '0.75rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '4px' }}>SCRAP / KO</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <input 
-                      type="number" 
-                      className="form-input" 
-                      style={{ minHeight: '42px', fontWeight: 'bold', fontSize: '1.1rem', color: '#f43f5e', textAlign: 'center' }}
-                      value={item.quantity_ko}
-                      onChange={(e) => updateRow(item.id, 'quantity_ko', e.target.value)}
-                    />
-                    <button className="btn btn-danger" style={{ minHeight: '42px', padding: '0 10px' }} onClick={() => adjustQty(item.id, 'quantity_ko', 1)}>+1</button>
-                  </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {m.references.map((r) => {
+                    const sideStyle = getSideColor(r.side_type);
+                    return (
+                      <div key={r.id} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                            <span style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: 'bold', 
+                              padding: '2px 8px', 
+                              borderRadius: '10px',
+                              background: sideStyle.bg,
+                              color: sideStyle.text,
+                              border: `1px solid ${sideStyle.border}`
+                            }}>
+                              LADO: {r.side_type}
+                            </span>
+                            <input 
+                              type="text" 
+                              className="form-input" 
+                              style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', fontSize: '0.9rem' }}
+                              value={r.code}
+                              onChange={(e) => updateSubRefQty(m.id, r.id, 'code', e.target.value)}
+                              placeholder="Código Ref (ej. L381154)"
+                            />
+                          </div>
+
+                          {m.references.length > 1 && (
+                            <button type="button" className="btn btn-danger" style={{ minHeight: '32px', padding: '0 8px' }} onClick={() => removeSubReference(m.id, r.id)}>
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* CONTADORES OK Y KO POR CADA REFERENCIA INDIVIDUAL */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <CheckCircle size={12} /> PROD OK ({r.side_type})
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <input 
+                                type="number" 
+                                className="form-input" 
+                                style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#10b981', textAlign: 'center' }}
+                                value={r.quantity_ok}
+                                onChange={(e) => updateSubRefQty(m.id, r.id, 'quantity_ok', e.target.value)}
+                              />
+                              <button type="button" className="btn btn-success" style={{ minHeight: '38px', padding: '0 8px', fontSize: '0.75rem' }} onClick={() => adjustSubRefQty(m.id, r.id, 'quantity_ok', 1)}>+1</button>
+                              <button type="button" className="btn btn-success" style={{ minHeight: '38px', padding: '0 8px', fontSize: '0.75rem' }} onClick={() => adjustSubRefQty(m.id, r.id, 'quantity_ok', 10)}>+10</button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <AlertOctagon size={12} /> SCRAP KO ({r.side_type})
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <input 
+                                type="number" 
+                                className="form-input" 
+                                style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#f43f5e', textAlign: 'center' }}
+                                value={r.quantity_ko}
+                                onChange={(e) => updateSubRefQty(m.id, r.id, 'quantity_ko', e.target.value)}
+                              />
+                              <button type="button" className="btn btn-danger" style={{ minHeight: '38px', padding: '0 8px', fontSize: '0.75rem' }} onClick={() => adjustSubRefQty(m.id, r.id, 'quantity_ko', 1)}>+1</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -504,45 +653,45 @@ export default function ShiftProductionSheet({
       {/* MONTAJE */}
       <div className="section-header">
         <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Package size={18} color="#a78bfa" /> MONTAJE ({montajeItems.length})
+          <Package size={18} color="#a78bfa" /> MONTAJE ({montajeEntries.length})
         </h3>
-        <button className="btn btn-secondary" style={{ minHeight: '34px', padding: '4px 10px', fontSize: '0.78rem' }} onClick={() => addRow(true)}>
+        <button className="btn btn-secondary" style={{ minHeight: '34px', padding: '4px 10px', fontSize: '0.78rem' }} onClick={addMontajeEntry}>
           <Plus size={14} /> Añadir a Montaje
         </button>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '30px' }}>
-        {montajeItems.map((item) => (
-          <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
+        {montajeEntries.map((m) => (
+          <div key={m.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <input 
                 type="text" 
                 className="form-input" 
                 style={{ fontFamily: 'monospace', fontWeight: 'bold' }}
                 placeholder="Referencia Montaje (ej. IS6170080-02)"
-                value={String(item.part_reference || '')}
-                onChange={(e) => updateRow(item.id, 'part_reference', e.target.value)}
+                value={m.part_reference}
+                onChange={(e) => updateMontajeEntry(m.id, 'part_reference', e.target.value)}
               />
-              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px', marginLeft: '8px' }} onClick={() => removeRow(item.id)}>
+              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px', marginLeft: '8px' }} onClick={() => removeMontajeEntry(m.id)}>
                 <Trash2 size={15} />
               </button>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>PROD OK</label>
+                <label className="form-label" style={{ fontSize: '0.72rem' }}>PROD OK MONTAJE</label>
                 <input 
                   type="number" 
                   className="form-input" 
                   style={{ color: '#10b981', fontWeight: 'bold' }}
-                  value={item.quantity_ok}
-                  onChange={(e) => updateRow(item.id, 'quantity_ok', e.target.value)}
+                  value={m.quantity_ok}
+                  onChange={(e) => updateMontajeEntry(m.id, 'quantity_ok', e.target.value)}
                 />
               </div>
 
               <div>
                 <label className="form-label" style={{ fontSize: '0.72rem' }}>OPERARIO MONTAJE</label>
-                <select className="form-select" value={item.operator_name} onChange={(e) => updateRow(item.id, 'operator_name', e.target.value)}>
+                <select className="form-select" value={m.operator_name} onChange={(e) => updateMontajeEntry(m.id, 'operator_name', e.target.value)}>
                   {operators.map(op => (
                     <option key={op.id} value={op.name}>Nº {op.operator_number} - {op.name}</option>
                   ))}
@@ -557,14 +706,16 @@ export default function ShiftProductionSheet({
       <div 
         ref={printSheetRef}
         style={{ 
-          display: 'none', 
+          position: 'fixed',
+          left: '-9999px',
+          top: '0',
           width: '800px', 
           padding: '24px', 
           background: '#ffffff', 
           color: '#000000', 
           fontFamily: 'Arial, sans-serif',
           border: '3px solid #000000',
-          margin: '0 auto'
+          zIndex: -9999
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #000', paddingBottom: '8px', marginBottom: '12px', fontSize: '14px', fontWeight: 'bold' }}>
@@ -586,25 +737,27 @@ export default function ShiftProductionSheet({
               <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD OK</th>
               <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD KO</th>
               <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>Nº OP</th>
-              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>NOMBRE</th>
+              <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>OPERARIO</th>
             </tr>
           </thead>
           <tbody>
-            {plantaItems.map((i, idx) => (
-              <tr key={idx}>
-                <td style={{ border: '1px solid #000', padding: '5px', fontWeight: 'bold' }}>{i.machine_name}</td>
-                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center' }}>{i.machine_side}</td>
-                <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{String(i.part_reference || '')}</td>
-                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{i.quantity_ok}</td>
-                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{i.quantity_ko > 0 ? i.quantity_ko : ''}</td>
-                <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{i.operator_number}</td>
-                <td style={{ border: '1px solid #000', padding: '5px' }}>{i.operator_name}</td>
-              </tr>
+            {machineEntries.map(m => (
+              m.references.map((r, rIdx) => (
+                <tr key={`${m.id}-${r.id}`}>
+                  <td style={{ border: '1px solid #000', padding: '5px', fontWeight: 'bold' }}>{m.machine_name}</td>
+                  <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{r.side_type}</td>
+                  <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{r.code}</td>
+                  <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{r.quantity_ok}</td>
+                  <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{r.quantity_ko > 0 ? r.quantity_ko : ''}</td>
+                  <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{m.operator_number}</td>
+                  <td style={{ border: '1px solid #000', padding: '5px' }}>{m.operator_name}</td>
+                </tr>
+              ))
             ))}
           </tbody>
         </table>
 
-        {montajeItems.length > 0 && (
+        {montajeEntries.length > 0 && (
           <>
             <div style={{ background: '#000', color: '#fff', padding: '4px 8px', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase', marginBottom: '6px' }}>
               MONTAJE
@@ -615,16 +768,16 @@ export default function ShiftProductionSheet({
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>REFERENCIA</th>
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD OK</th>
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>Nº OP</th>
-                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>NOMBRE</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>OPERARIO</th>
                 </tr>
               </thead>
               <tbody>
-                {montajeItems.map((i, idx) => (
+                {montajeEntries.map((m, idx) => (
                   <tr key={idx}>
-                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{String(i.part_reference || '')}</td>
-                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{i.quantity_ok}</td>
-                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{i.operator_number}</td>
-                    <td style={{ border: '1px solid #000', padding: '5px' }}>{i.operator_name}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{m.part_reference}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{m.quantity_ok}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{m.operator_number}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px' }}>{m.operator_name}</td>
                   </tr>
                 ))}
               </tbody>
@@ -637,6 +790,40 @@ export default function ShiftProductionSheet({
           {incidentsNotes || 'Ninguna.'}
         </div>
       </div>
+
+      {/* MODAL PREVISUALIZACIÓN DE IMAGEN */}
+      {previewImage && (
+        <div className="modal-overlay" onClick={() => setPreviewImage(null)} style={{ zIndex: 1000 }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '850px', width: '95%' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">📷 Imagen Generada para Supervisor</h3>
+              <button className="close-btn" onClick={() => setPreviewImage(null)}>✕</button>
+            </div>
+            
+            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+              <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '12px' }}>
+                Revisa la imagen antes de descargarla o abrirla en una pestaña nueva:
+              </p>
+              
+              <div style={{ maxHeight: '450px', overflowY: 'auto', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', padding: '6px', background: '#000' }}>
+                <img src={previewImage.blobUrl} alt="Parte de producción" style={{ width: '100%', height: 'auto', display: 'block' }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '16px', flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary" onClick={() => window.open(previewImage.blobUrl, '_blank')}>
+                👁️ Abrir en Pestaña Nueva
+              </button>
+              <button className="btn btn-success" onClick={() => handleDownloadImage(previewImage)}>
+                📥 Descargar Imagen PNG
+              </button>
+              <button className="btn btn-primary" onClick={() => setPreviewImage(null)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

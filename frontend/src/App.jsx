@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Cpu, RefreshCw } from 'lucide-react';
 import ShiftProductionSheet from './components/ShiftProductionSheet';
 import AdminCrudView from './components/AdminCrudView';
+import ShiftHistoryView from './components/ShiftHistoryView';
 import BottomNav from './components/BottomNav';
 
-const API_BASE_URL = 'http://localhost:8088/api';
+const API_BASE_URL = 'http://localhost:8000/api';
 
 export default function App() {
   const [machines, setMachines] = useState([]);
@@ -267,6 +268,13 @@ export default function App() {
           parts={parts}
           currentSheet={currentSheet}
           onSaveSheet={handleSaveSheet}
+          onOpenHtmlReport={handleOpenHtmlReport}
+        />
+      )}
+
+      {activeTab === 'history' && (
+        <ShiftHistoryView 
+          shiftSheets={shiftSheets}
           onOpenHtmlReport={handleOpenHtmlReport}
         />
       )}
