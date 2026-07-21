@@ -5,7 +5,16 @@ import AdminCrudView from './components/AdminCrudView';
 import ShiftHistoryView from './components/ShiftHistoryView';
 import BottomNav from './components/BottomNav';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const getApiBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (!envUrl) return 'http://localhost:8000/api';
+  if (envUrl.startsWith('http://') || envUrl.startsWith('https://')) {
+    return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
+  }
+  return `https://${envUrl}/api`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export default function App() {
   const [machines, setMachines] = useState([]);
