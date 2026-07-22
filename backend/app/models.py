@@ -32,6 +32,7 @@ class Part(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
+    is_montaje = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     references_list = relationship("PartReference", back_populates="part", cascade="all, delete-orphan")
@@ -81,6 +82,7 @@ class ProductionItem(Base):
     operator_number_manual = Column(String(50), nullable=True)
     
     is_montaje = Column(Boolean, default=False, nullable=False)
+    is_csl1 = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     shift_sheet = relationship("ShiftSheet", back_populates="items")

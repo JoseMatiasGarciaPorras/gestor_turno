@@ -1,7 +1,8 @@
-import React from 'react';
-import { Calendar, User, FileText, CheckCircle, AlertOctagon, Layers, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, User, FileText, CheckCircle, AlertOctagon, Layers, Clock, Trash2 } from 'lucide-react';
 
-export default function ShiftHistoryView({ shiftSheets = [], onOpenHtmlReport }) {
+export default function ShiftHistoryView({ shiftSheets = [], onOpenHtmlReport, onDeleteSheet }) {
+  const [sheetToDelete, setSheetToDelete] = useState(null);
   return (
     <div style={{ marginTop: '10px' }}>
       <div className="section-header">
@@ -66,21 +67,36 @@ export default function ShiftHistoryView({ shiftSheets = [], onOpenHtmlReport })
                     </div>
                   </div>
 
-                  <button 
-                    className="btn btn-secondary"
-                    style={{ 
-                      padding: '6px 14px', 
-                      minHeight: '38px', 
-                      fontSize: '0.82rem', 
-                      background: 'rgba(59, 130, 246, 0.15)', 
-                      color: '#60a5fa', 
-                      border: '1px solid rgba(59, 130, 246, 0.4)',
-                      fontWeight: 'bold'
-                    }}
-                    onClick={() => onOpenHtmlReport(sheet.id)}
-                  >
-                    <FileText size={16} /> Ver Informe HTML
-                  </button>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button 
+                      className="btn btn-secondary"
+                      style={{ 
+                        padding: '6px 14px', 
+                        minHeight: '38px', 
+                        fontSize: '0.82rem', 
+                        background: 'rgba(59, 130, 246, 0.15)', 
+                        color: '#60a5fa', 
+                        border: '1px solid rgba(59, 130, 246, 0.4)',
+                        fontWeight: 'bold'
+                      }}
+                      onClick={() => onOpenHtmlReport(sheet.id)}
+                    >
+                      <FileText size={16} /> Ver Informe HTML
+                    </button>
+                    <button 
+                      className="btn btn-danger"
+                      style={{ 
+                        padding: '6px 10px', 
+                        minHeight: '38px',
+                        background: 'rgba(244, 63, 94, 0.15)',
+                        border: '1px solid rgba(244, 63, 94, 0.4)'
+                      }}
+                      onClick={() => setSheetToDelete(sheet.id)}
+                      title="Eliminar este parte de producción"
+                    >
+                      <Trash2 size={16} color="#f43f5e" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Métricas del Parte */}
@@ -122,6 +138,26 @@ export default function ShiftHistoryView({ shiftSheets = [], onOpenHtmlReport })
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMACIÓN DE BORRADO DE PARTE */}
+      {sheetToDelete !== null && (
+        <div className="modal-overlay" onClick={() => setSheetToDelete(null)} style={{ zIndex: 1000 }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center', maxWidth: '400px' }}>
+            <Trash2 size={48} color="#f43f5e" style={{ margin: '0 auto 12px' }} />
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '8px', color: '#ffffff' }}>¿Eliminar Parte de Turno?</h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '20px' }}>
+              ¿Estás seguro de que deseas eliminar permanentemente este parte de producción? Esta acción no se puede deshacer.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setSheetToDelete(null)}>Cancelar</button>
+              <button className="btn btn-danger" style={{ flex: 1, background: '#f43f5e', color: 'white' }} onClick={() => {
+                onDeleteSheet(sheetToDelete);
+                setSheetToDelete(null);
+              }}>Sí, Eliminar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

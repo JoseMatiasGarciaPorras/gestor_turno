@@ -35,6 +35,7 @@ class PartReferenceResponse(PartReferenceBase):
 class PartBase(BaseModel):
     name: str
     description: Optional[str] = None
+    is_montaje: bool = False
 
 class PartCreate(PartBase):
     references: List[PartReferenceCreate] = []
@@ -85,6 +86,7 @@ class ProductionItemBase(BaseModel):
     operator_number_manual: Optional[str] = None
     
     is_montaje: bool = False
+    is_csl1: bool = False
 
 class ProductionItemCreate(ProductionItemBase):
     pass

@@ -13,8 +13,17 @@ MYSQL_DB = os.getenv("MYSQL_DB", "gestor_turnos")
 USE_SQLITE = os.getenv("USE_SQLITE", "false").lower() in ("true", "1", "yes")
 
 def get_database_url():
+    # Priorizar variable de entorno DATABASE_URL estándar (ej. para Render Postgres)
+    env_db_url = os.getenv("DATABASE_URL")
+    if env_db_url:
+        if env_db_url.startswith("postgres://"):
+            return env_db_url.replace("postgres://", "postgresql://", 1)
+        return env_db_url
+
     if USE_SQLITE:
-        return "sqlite:///./gestor_turnos.db"
+        # Permitir cambiar la ruta del SQLite (ej. /data/gestor_turnos.db para Render Disks persistentes)
+        sqlite_path = os.getenv("SQLITE_PATH", "./gestor_turnos.db")
+        return f"sqlite:///{sqlite_path}"
     
     if MYSQL_PASSWORD:
         return f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"

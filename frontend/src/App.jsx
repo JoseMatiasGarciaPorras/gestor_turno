@@ -47,8 +47,20 @@ export default function App() {
         setMachines(macsData);
         setOperators(opsData);
         setParts(partsData);
-        setShiftSheets(sheetsData);
-        if (sheetsData.length > 0) setCurrentSheet(sheetsData[0]);
+
+        // Fusionar hojas de la API con historial en localStorage para evitar pérdidas ante reinicios del backend
+        const cachedSheetsRaw = localStorage.getItem('gestor_shift_sheets');
+        const cachedSheets = cachedSheetsRaw ? JSON.parse(cachedSheetsRaw) : [];
+        const mergedMap = new Map();
+        [...sheetsData, ...cachedSheets].forEach(s => {
+          if (s && s.id) mergedMap.set(String(s.id), s);
+        });
+        const mergedSheets = Array.from(mergedMap.values()).sort((a, b) => b.id - a.id);
+
+        setShiftSheets(mergedSheets);
+        localStorage.setItem('gestor_shift_sheets', JSON.stringify(mergedSheets));
+
+        if (mergedSheets.length > 0) setCurrentSheet(mergedSheets[0]);
         setError(null);
       } else {
         throw new Error("Error en servidor backend");
@@ -60,6 +72,7 @@ export default function App() {
       const cachedMac = localStorage.getItem('gestor_machines');
       const cachedOp = localStorage.getItem('gestor_operators');
       const cachedParts = localStorage.getItem('gestor_parts');
+      const cachedSheets = localStorage.getItem('gestor_shift_sheets');
 
       if (cachedMac) setMachines(JSON.parse(cachedMac));
       else {
@@ -93,6 +106,12 @@ export default function App() {
         setParts(defParts);
         localStorage.setItem('gestor_parts', JSON.stringify(defParts));
       }
+
+      if (cachedSheets) {
+        const parsedSheets = JSON.parse(cachedSheets);
+        setShiftSheets(parsedSheets);
+        if (parsedSheets.length > 0) setCurrentSheet(parsedSheets[0]);
+      }
     } finally {
       setLoading(false);
     }
@@ -104,6 +123,7 @@ export default function App() {
 
   // Guardar Parte de Turno
   const handleSaveSheet = async (sheetPayload) => {
+    let createdSheet = null;
     try {
       const res = await fetch(`${API_BASE_URL}/shift-sheets`, {
         method: 'POST',
@@ -111,22 +131,57 @@ export default function App() {
         body: JSON.stringify(sheetPayload)
       });
       if (res.ok) {
-        const created = await res.json();
-        setCurrentSheet(created);
-        alert("¡Parte de producción guardado con éxito!");
-        await fetchData();
-        return;
+        createdSheet = await res.json();
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Error enviando parte al backend:", e);
+    }
 
-    const newSheet = { ...sheetPayload, id: Date.now() };
-    setCurrentSheet(newSheet);
-    localStorage.setItem('gestor_current_sheet', JSON.stringify(newSheet));
-    alert("Guardado en almacenamiento local (Modo Offline)");
+    if (!createdSheet) {
+      createdSheet = { ...sheetPayload, id: Date.now(), created_at: new Date().toISOString() };
+    }
+
+    setCurrentSheet(createdSheet);
+    
+    // Guardar en historial local de inmediato
+    const cachedSheetsRaw = localStorage.getItem('gestor_shift_sheets');
+    const existingSheets = cachedSheetsRaw ? JSON.parse(cachedSheetsRaw) : [];
+    const updatedSheets = [createdSheet, ...existingSheets.filter(s => s.id !== createdSheet.id)];
+    
+    setShiftSheets(updatedSheets);
+    localStorage.setItem('gestor_shift_sheets', JSON.stringify(updatedSheets));
+
+    alert("¡Parte de producción guardado con éxito!");
+    await fetchData();
   };
 
   const handleOpenHtmlReport = (sheetId) => {
     window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html`, '_blank');
+  };
+
+  const handleDeleteSheet = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/shift-sheets/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        // Success
+      }
+    } catch (e) {
+      console.warn("Error borrando el parte en servidor:", e);
+    }
+
+    // Actualizar cache local
+    const cachedSheetsRaw = localStorage.getItem('gestor_shift_sheets');
+    if (cachedSheetsRaw) {
+      const existingSheets = JSON.parse(cachedSheetsRaw);
+      const updated = existingSheets.filter(s => s.id !== id);
+      setShiftSheets(updated);
+      localStorage.setItem('gestor_shift_sheets', JSON.stringify(updated));
+    }
+    
+    alert("¡Parte de producción eliminado con éxito!");
+    await fetchData();
   };
 
   // Handlers CRUD de Operarios
@@ -285,6 +340,7 @@ export default function App() {
         <ShiftHistoryView 
           shiftSheets={shiftSheets}
           onOpenHtmlReport={handleOpenHtmlReport}
+          onDeleteSheet={handleDeleteSheet}
         />
       )}
 

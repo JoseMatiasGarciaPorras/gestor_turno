@@ -100,6 +100,18 @@ def seed_initial_data(db: Session):
 def startup_event():
     db = next(get_db())
     try:
+        # Migración rápida para SQLite en local/Render
+        from sqlalchemy import text
+        try:
+            db.execute(text("ALTER TABLE parts ADD COLUMN is_montaje BOOLEAN DEFAULT FALSE"))
+            db.commit()
+        except Exception:
+            pass
+        try:
+            db.execute(text("ALTER TABLE production_items ADD COLUMN is_csl1 BOOLEAN DEFAULT FALSE"))
+            db.commit()
+        except Exception:
+            pass
         seed_initial_data(db)
     finally:
         db.close()
@@ -151,7 +163,7 @@ def get_parts(db: Session = Depends(get_db)):
 
 @app.post("/api/parts", response_model=PartResponse, status_code=status.HTTP_201_CREATED)
 def create_part(part: PartCreate, db: Session = Depends(get_db)):
-    db_part = Part(name=part.name, description=part.description)
+    db_part = Part(name=part.name, description=part.description, is_montaje=part.is_montaje)
     db.add(db_part)
     db.commit()
     db.refresh(db_part)
@@ -175,6 +187,7 @@ def update_part(part_id: int, payload: PartCreate, db: Session = Depends(get_db)
     
     part.name = payload.name
     part.description = payload.description
+    part.is_montaje = payload.is_montaje
 
     # Reemplazar lista de referencias
     db.query(PartReference).filter(PartReference.part_id == part_id).delete()
@@ -289,7 +302,8 @@ def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db))
             operator_id=item.operator_id,
             operator_name_manual=item.operator_name_manual,
             operator_number_manual=item.operator_number_manual,
-            is_montaje=item.is_montaje
+            is_montaje=item.is_montaje,
+            is_csl1=item.is_csl1
         )
         db.add(db_item)
 
@@ -298,6 +312,15 @@ def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db))
     return db.query(ShiftSheet)\
         .options(joinedload(ShiftSheet.items))\
         .filter(ShiftSheet.id == sheet.id).first()
+
+@app.delete("/api/shift-sheets/{sheet_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_shift_sheet(sheet_id: int, db: Session = Depends(get_db)):
+    sheet = db.query(ShiftSheet).filter(ShiftSheet.id == sheet_id).first()
+    if not sheet:
+        raise HTTPException(status_code=404, detail="Parte de producción no encontrado.")
+    db.delete(sheet)
+    db.commit()
+    return None
 
 # --- REPLICADOR DE HOJA FÍSICA EN HTML ---
 
@@ -318,6 +341,8 @@ def get_shift_sheet_html(sheet_id: int, db: Session = Depends(get_db)):
     def render_row(item):
         mac_name = item.machine.name if item.machine else (item.machine_name_manual or '-')
         part_ref = item.part.name if item.part else (item.part_reference_manual or '-')
+        if item.is_csl1:
+            part_ref += " <span style='background:#f43f5e;color:#fff;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:bold;margin-left:4px;'>CSL1</span>"
         op_num = item.operator.operator_number if item.operator else (item.operator_number_manual or '-')
         op_name = item.operator.name if item.operator else (item.operator_name_manual or '-')
         

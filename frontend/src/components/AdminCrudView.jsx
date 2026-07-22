@@ -19,6 +19,7 @@ export default function AdminCrudView({
   const [category, setCategory] = useState('General');
   const [location, setLocation] = useState('Sector A');
   const [description, setDescription] = useState('');
+  const [isMontaje, setIsMontaje] = useState(false);
 
   // Structured References for Parts
   const [referencesList, setReferencesList] = useState([
@@ -49,6 +50,7 @@ export default function AdminCrudView({
     setCategory('General');
     setLocation('Sector A');
     setDescription('');
+    setIsMontaje(false);
     setReferencesList([
       { code: '', side_type: 'IZQ' },
       { code: '', side_type: 'DCH' }
@@ -67,6 +69,7 @@ export default function AdminCrudView({
       setCode(item.operator_number || '');
     } else if (type === 'parts') {
       setDescription(item.description || '');
+      setIsMontaje(!!item.is_montaje);
       const refs = getNormalizedReferences(item);
       setReferencesList(refs.length > 0 ? refs : [{ code: '', side_type: 'Única' }]);
     }
@@ -93,7 +96,7 @@ export default function AdminCrudView({
         onUpdateOperator(item.id, { name: name.trim(), operator_number: code.trim().toUpperCase() });
       } else if (type === 'parts') {
         const validRefs = referencesList.filter(r => r.code.trim() !== '').map(r => ({ code: r.code.trim().toUpperCase(), side_type: r.side_type }));
-        onUpdatePart(item.id, { name: name.trim(), description: description.trim(), references: validRefs });
+        onUpdatePart(item.id, { name: name.trim(), description: description.trim(), is_montaje: isMontaje, references: validRefs });
       }
       setEditingItem(null);
     } else {
@@ -103,7 +106,7 @@ export default function AdminCrudView({
         onCreateOperator({ name: name.trim(), operator_number: code.trim().toUpperCase() });
       } else if (subTab === 'parts') {
         const validRefs = referencesList.filter(r => r.code.trim() !== '').map(r => ({ code: r.code.trim().toUpperCase(), side_type: r.side_type }));
-        onCreatePart({ name: name.trim(), description: description.trim(), references: validRefs });
+        onCreatePart({ name: name.trim(), description: description.trim(), is_montaje: isMontaje, references: validRefs });
       }
       setShowCreateModal(false);
     }
@@ -189,7 +192,14 @@ export default function AdminCrudView({
           return (
             <div key={item.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.name}</div>
+                  {item.is_montaje && (
+                    <span style={{ fontSize: '0.68rem', fontWeight: 'bold', background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.4)', padding: '1px 6px', borderRadius: '4px' }}>
+                      MONTAJE
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('parts', item)}>
                     <Edit2 size={15} color="#38bdf8" />
@@ -278,6 +288,19 @@ export default function AdminCrudView({
                   <div className="form-group">
                     <label className="form-label">Descripción (Opcional)</label>
                     <input type="text" className="form-input" value={description} onChange={(e) => setDescription(e.target.value)} />
+                  </div>
+
+                  <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                    <input 
+                      type="checkbox" 
+                      id="is_montaje" 
+                      checked={isMontaje} 
+                      onChange={(e) => setIsMontaje(e.target.checked)} 
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="is_montaje" style={{ color: '#ffffff', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 'bold' }}>
+                      Esta pieza es para Montaje
+                    </label>
                   </div>
 
                   <div style={{ marginBottom: '14px', borderTop: '1px border-color', paddingTop: '10px' }}>

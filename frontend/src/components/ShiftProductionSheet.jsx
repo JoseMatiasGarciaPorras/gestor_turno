@@ -1,6 +1,28 @@
-import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Save, Calendar, Camera, Search, Cpu, Package, Tag, CheckCircle, AlertOctagon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Trash2, Save, Calendar, Camera, Search, Cpu, Package, Tag, CheckCircle, AlertOctagon, RotateCcw } from 'lucide-react';
 import html2canvas from 'html2canvas';
+
+const DRAFT_KEY = 'gestor_shift_draft';
+
+const loadSavedDraft = () => {
+  try {
+    const saved = localStorage.getItem(DRAFT_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (e) {
+    console.error("Error cargando borrador:", e);
+  }
+  return null;
+};
+
+const getLocalDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 // Normalizador seguro de referencias de piezas
 export function getNormalizedReferences(part) {
@@ -31,66 +53,97 @@ export default function ShiftProductionSheet({
   machines = [], operators = [], parts = [], currentSheet, onSaveSheet, onOpenHtmlReport 
 }) {
   const printSheetRef = useRef(null);
+  const initialDraftRef = useRef(loadSavedDraft());
+  const initialDraft = initialDraftRef.current;
 
   // Header controls
-  const [productionDate, setProductionDate] = useState(new Date().toISOString().split('T')[0]);
-  const [shiftName, setShiftName] = useState('Tarde');
-  const [supervisor, setSupervisor] = useState('Matias');
-  const [incidentsNotes, setIncidentsNotes] = useState('Operación en planta sin novedades.');
+  const [productionDate, setProductionDate] = useState(
+    initialDraft?.productionDate || getLocalDateString()
+  );
+  const [shiftName, setShiftName] = useState(initialDraft?.shiftName || 'Tarde');
+  const [supervisor, setSupervisor] = useState(initialDraft?.supervisor || 'Matias');
+  const [incidentsNotes, setIncidentsNotes] = useState(
+    initialDraft?.incidentsNotes !== undefined ? initialDraft.incidentsNotes : 'Operación en planta sin novedades.'
+  );
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [showConfirmReset, setShowConfirmReset] = useState(false);
 
   // Active autocomplete row ID
   const [activeSearchRowId, setActiveSearchRowId] = useState(null);
 
-  // Initial machine entries with sub-reference rows
-  const [machineEntries, setMachineEntries] = useState([
-    {
-      id: 101,
-      machine_name: 'RB1000',
-      part_name: 'Pieza 90100108',
-      operator_name: 'Natalia',
-      operator_number: '247',
-      is_montaje: false,
-      references: [
-        { id: 1001, code: '90100108', side_type: 'Única', quantity_ok: 106, quantity_ko: 0 }
-      ]
-    },
-    {
-      id: 102,
-      machine_name: 'NS1500',
-      part_name: 'Conjunto Espejo Retrovisor NS1500',
-      operator_name: 'Diantra',
-      operator_number: '214',
-      is_montaje: false,
-      references: [
-        { id: 1002, code: 'L381154', side_type: 'IZQ', quantity_ok: 374, quantity_ko: 2 },
-        { id: 1003, code: 'L381153', side_type: 'DCH', quantity_ok: 370, quantity_ko: 4 }
-      ]
-    },
-    {
-      id: 103,
-      machine_name: 'ENGEL 550',
-      part_name: 'Moldura Frontal ENGEL 550',
-      operator_name: 'Rocío',
-      operator_number: '237',
-      is_montaje: false,
-      references: [
-        { id: 1004, code: 'L802189', side_type: 'IZQ', quantity_ok: 796, quantity_ko: 0 },
-        { id: 1005, code: 'L802190', side_type: 'DCH', quantity_ok: 790, quantity_ko: 1 }
-      ]
-    }
-  ]);
+  // Machine entries (restored from draft or clean default)
+  const [machineEntries, setMachineEntries] = useState(
+    initialDraft?.machineEntries || []
+  );
 
-  // Items de Montaje
-  const [montajeEntries, setMontajeEntries] = useState([
-    {
-      id: 201,
-      part_reference: 'IS6170080-02',
-      quantity_ok: 150,
-      operator_name: 'David',
-      operator_number: '280'
+  // Montaje entries (restored from draft or clean default)
+  const [montajeEntries, setMontajeEntries] = useState(
+    initialDraft?.montajeEntries || []
+  );
+
+  // If no saved draft exists and machineEntries is empty, populate cleanly when machines are loaded
+  useEffect(() => {
+    if (machineEntries.length === 0 && !initialDraft && machines.length > 0) {
+      const activeMacs = machines.filter(m => m.status === 'en_uso').slice(0, 4);
+      const targetMacs = activeMacs.length > 0 ? activeMacs : machines.slice(0, 3);
+      
+      const cleanEntries = targetMacs.map((mac, idx) => {
+        const matchedPart = parts[idx % parts.length] || null;
+        const normRefs = getNormalizedReferences(matchedPart);
+        const subRefs = normRefs.length > 0
+          ? normRefs.map((r, rIdx) => ({ id: Date.now() + idx * 10 + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+          : [{ id: Date.now() + idx, code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+        const matchedOp = operators[idx % operators.length] || null;
+
+        return {
+          id: Date.now() + idx,
+          machine_name: mac.name,
+          part_name: matchedPart ? matchedPart.name : '',
+          operator_name: matchedOp ? matchedOp.name : '',
+          operator_number: matchedOp ? matchedOp.operator_number : '',
+          is_montaje: false,
+          references: subRefs
+        };
+      });
+
+      setMachineEntries(cleanEntries);
     }
-  ]);
+  }, [machines, parts, operators]);
+
+  // Persistir el borrador automáticamente ante cualquier cambio
+  useEffect(() => {
+    const draftData = {
+      productionDate,
+      shiftName,
+      supervisor,
+      incidentsNotes,
+      machineEntries,
+      montajeEntries
+    };
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
+    } catch (e) {
+      console.error("Error guardando borrador local:", e);
+    }
+  }, [productionDate, shiftName, supervisor, incidentsNotes, machineEntries, montajeEntries]);
+
+  // Handler para reiniciar el borrador
+  const handleResetDraft = () => {
+    setShowConfirmReset(true);
+  };
+
+  const confirmResetDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+    setProductionDate(getLocalDateString());
+    setIncidentsNotes('Operación en planta sin novedades.');
+    setMachineEntries(prev => prev.map(m => ({
+      ...m,
+      references: m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 }))
+    })));
+    setMontajeEntries(prev => prev.map(m => ({ ...m, quantity_ok: 0, quantity_ko: 0, is_csl1: false })));
+    setShowConfirmReset(false);
+  };
 
   // Añadir nueva Máquina
   const addMachineEntry = () => {
@@ -154,22 +207,6 @@ export default function ShiftProductionSheet({
     setActiveSearchRowId(null);
   };
 
-  // Añadir una sub-referencia extra a una máquina
-  const addSubReference = (machineId, side_type = 'Única') => {
-    setMachineEntries(machineEntries.map(m => {
-      if (m.id === machineId) {
-        return {
-          ...m,
-          references: [
-            ...m.references,
-            { id: Date.now(), code: '', side_type: side_type, quantity_ok: 0, quantity_ko: 0 }
-          ]
-        };
-      }
-      return m;
-    }));
-  };
-
   const removeSubReference = (machineId, subRefId) => {
     setMachineEntries(machineEntries.map(m => {
       if (m.id === machineId) {
@@ -200,29 +237,11 @@ export default function ShiftProductionSheet({
     }));
   };
 
-  const adjustSubRefQty = (machineId, subRefId, field, delta) => {
-    setMachineEntries(machineEntries.map(m => {
-      if (m.id === machineId) {
-        return {
-          ...m,
-          references: m.references.map(r => {
-            if (r.id === subRefId) {
-              const currentVal = parseInt(r[field]) || 0;
-              return { ...r, [field]: Math.max(0, currentVal + delta) };
-            }
-            return r;
-          })
-        };
-      }
-      return m;
-    }));
-  };
-
   // Montaje Handlers
   const addMontajeEntry = () => {
     setMontajeEntries([
       ...montajeEntries,
-      { id: Date.now(), part_reference: '', quantity_ok: 0, operator_name: operators[0]?.name || '', operator_number: operators[0]?.operator_number || '' }
+      { id: Date.now(), part_reference: '', quantity_ok: 0, quantity_ko: 0, is_csl1: false, operator_name: operators[0]?.name || '', operator_number: operators[0]?.operator_number || '' }
     ]);
   };
 
@@ -257,6 +276,7 @@ export default function ShiftProductionSheet({
 
   montajeEntries.forEach(m => {
     totalOk += parseInt(m.quantity_ok || 0);
+    totalKo += parseInt(m.quantity_ko || 0);
   });
 
   // Modal para previsualizar y descargar la imagen generada
@@ -335,10 +355,11 @@ export default function ShiftProductionSheet({
         machine_side: 'IZQ',
         part_reference_manual: m.part_reference,
         quantity_ok: parseInt(m.quantity_ok || 0),
-        quantity_ko: 0,
+        quantity_ko: parseInt(m.quantity_ko || 0),
         operator_number_manual: m.operator_number,
         operator_name_manual: m.operator_name,
-        is_montaje: true
+        is_montaje: true,
+        is_csl1: !!m.is_csl1
       });
     });
 
@@ -371,6 +392,16 @@ export default function ShiftProductionSheet({
           </h2>
           
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', width: '100%', justifyContent: 'flex-end' }}>
+            <button 
+              type="button"
+              className="btn btn-secondary" 
+              style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.85rem' }} 
+              onClick={handleResetDraft}
+              title="Reiniciar conteos y borrador del turno"
+            >
+              <RotateCcw size={16} /> Reiniciar Turno
+            </button>
+
             <button 
               className="btn btn-success" 
               style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.85rem', fontWeight: 'bold' }}
@@ -439,6 +470,7 @@ export default function ShiftProductionSheet({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
         {machineEntries.map((m) => {
           const filteredParts = parts.filter(p => 
+            !p.is_montaje &&
             p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase())
           );
 
@@ -563,10 +595,6 @@ export default function ShiftProductionSheet({
                   <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <Tag size={14} /> REFERENCIAS DE LA PIEZA ({m.references.length})
                   </span>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button type="button" className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem', minHeight: '28px' }} onClick={() => addSubReference(m.id, 'IZQ')}>+ Sub IZQ</button>
-                    <button type="button" className="btn btn-secondary" style={{ padding: '2px 8px', fontSize: '0.7rem', minHeight: '28px' }} onClick={() => addSubReference(m.id, 'DCH')}>+ Sub DCH</button>
-                  </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -618,8 +646,6 @@ export default function ShiftProductionSheet({
                                 value={r.quantity_ok}
                                 onChange={(e) => updateSubRefQty(m.id, r.id, 'quantity_ok', e.target.value)}
                               />
-                              <button type="button" className="btn btn-success" style={{ minHeight: '38px', padding: '0 8px', fontSize: '0.75rem' }} onClick={() => adjustSubRefQty(m.id, r.id, 'quantity_ok', 1)}>+1</button>
-                              <button type="button" className="btn btn-success" style={{ minHeight: '38px', padding: '0 8px', fontSize: '0.75rem' }} onClick={() => adjustSubRefQty(m.id, r.id, 'quantity_ok', 10)}>+10</button>
                             </div>
                           </div>
 
@@ -635,7 +661,6 @@ export default function ShiftProductionSheet({
                                 value={r.quantity_ko}
                                 onChange={(e) => updateSubRefQty(m.id, r.id, 'quantity_ko', e.target.value)}
                               />
-                              <button type="button" className="btn btn-danger" style={{ minHeight: '38px', padding: '0 8px', fontSize: '0.75rem' }} onClick={() => adjustSubRefQty(m.id, r.id, 'quantity_ko', 1)}>+1</button>
                             </div>
                           </div>
                         </div>
@@ -677,9 +702,9 @@ export default function ShiftProductionSheet({
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
               <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>PROD OK MONTAJE</label>
+                <label className="form-label" style={{ fontSize: '0.72rem' }}>PROD OK</label>
                 <input 
                   type="number" 
                   className="form-input" 
@@ -690,13 +715,38 @@ export default function ShiftProductionSheet({
               </div>
 
               <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>OPERARIO MONTAJE</label>
+                <label className="form-label" style={{ fontSize: '0.72rem' }}>SCRAP KO</label>
+                <input 
+                  type="number" 
+                  className="form-input" 
+                  style={{ color: '#f43f5e', fontWeight: 'bold' }}
+                  value={m.quantity_ko || 0}
+                  onChange={(e) => updateMontajeEntry(m.id, 'quantity_ko', e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontSize: '0.72rem' }}>OPERARIO</label>
                 <select className="form-select" value={m.operator_name} onChange={(e) => updateMontajeEntry(m.id, 'operator_name', e.target.value)}>
                   {operators.map(op => (
                     <option key={op.id} value={op.name}>Nº {op.operator_number} - {op.name}</option>
                   ))}
                 </select>
               </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
+              <input 
+                type="checkbox" 
+                id={`csl1-${m.id}`} 
+                checked={!!m.is_csl1} 
+                onChange={(e) => updateMontajeEntry(m.id, 'is_csl1', e.target.checked)} 
+                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+              />
+              <label htmlFor={`csl1-${m.id}`} style={{ fontSize: '0.78rem', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                Selección especial CSL1
+                {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold' }}>CSL1</span>}
+              </label>
             </div>
           </div>
         ))}
@@ -767,6 +817,7 @@ export default function ShiftProductionSheet({
                 <tr style={{ background: '#e2e8f0' }}>
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>REFERENCIA</th>
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD OK</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD KO</th>
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>Nº OP</th>
                   <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>OPERARIO</th>
                 </tr>
@@ -774,8 +825,12 @@ export default function ShiftProductionSheet({
               <tbody>
                 {montajeEntries.map((m, idx) => (
                   <tr key={idx}>
-                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>{m.part_reference}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                      {m.part_reference}
+                      {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold', marginLeft: '5px' }}>CSL1</span>}
+                    </td>
                     <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{m.quantity_ok}</td>
+                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>{m.quantity_ko > 0 ? m.quantity_ko : ''}</td>
                     <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{m.operator_number}</td>
                     <td style={{ border: '1px solid #000', padding: '5px' }}>{m.operator_name}</td>
                   </tr>
@@ -820,6 +875,23 @@ export default function ShiftProductionSheet({
               <button className="btn btn-primary" onClick={() => setPreviewImage(null)}>
                 Cerrar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CONFIRMACIÓN PARA REINICIAR TURNO */}
+      {showConfirmReset && (
+        <div className="modal-overlay" onClick={() => setShowConfirmReset(false)} style={{ zIndex: 1000 }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ textAlign: 'center', maxWidth: '400px' }}>
+            <RotateCcw size={48} color="#f43f5e" style={{ margin: '0 auto 12px' }} />
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '8px', color: '#ffffff' }}>¿Reiniciar Turno?</h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '20px' }}>
+              ¿Estás seguro de que deseas reiniciar el borrador del turno? Se limpiarán los contadores e incidencias.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowConfirmReset(false)}>Cancelar</button>
+              <button className="btn btn-danger" style={{ flex: 1, background: '#f43f5e', color: 'white' }} onClick={confirmResetDraft}>Sí, Reiniciar</button>
             </div>
           </div>
         </div>
