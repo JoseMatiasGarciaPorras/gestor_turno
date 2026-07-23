@@ -9,10 +9,11 @@ services:
     restart: always
     environment:
       - USE_SQLITE=true
+      - SQLITE_PATH=/app/data/gestor_turnos.db
     ports:
       - "8000:8000"
     volumes:
-      - backend_db_data:/app
+      - backend_db_data:/app/data
 
   frontend:
     build:

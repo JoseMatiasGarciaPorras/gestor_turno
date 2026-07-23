@@ -9,7 +9,10 @@ import BottomNav from './components/BottomNav';
 
 const getApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (!envUrl) return 'http://localhost:8000/api';
+  if (!envUrl) {
+    const hostname = window.location.hostname;
+    return `http://${hostname}:8000/api`;
+  }
   if (envUrl.startsWith('http://') || envUrl.startsWith('https://')) {
     return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
   }
