@@ -20,6 +20,7 @@ export default function AdminCrudView({
   const [location, setLocation] = useState('Sector A');
   const [description, setDescription] = useState('');
   const [isMontaje, setIsMontaje] = useState(false);
+  const [isSmall, setIsSmall] = useState(false);
 
   // Structured References for Parts
   const [referencesList, setReferencesList] = useState([
@@ -51,6 +52,7 @@ export default function AdminCrudView({
     setLocation('Sector A');
     setDescription('');
     setIsMontaje(false);
+    setIsSmall(false);
     setReferencesList([
       { code: '', side_type: 'IZQ' },
       { code: '', side_type: 'DCH' }
@@ -65,6 +67,7 @@ export default function AdminCrudView({
       setCode(item.machine_number || '');
       setCategory(item.category || 'General');
       setLocation(item.location || 'Sector A');
+      setIsSmall(!!item.is_small);
     } else if (type === 'operators') {
       setCode(item.operator_number || '');
     } else if (type === 'parts') {
@@ -91,7 +94,7 @@ export default function AdminCrudView({
     if (editingItem) {
       const { type, item } = editingItem;
       if (type === 'machines') {
-        onUpdateMachine(item.id, { name: name.trim(), machine_number: code.trim().toUpperCase(), category, location, status: item.status });
+        onUpdateMachine(item.id, { name: name.trim(), machine_number: code.trim().toUpperCase(), category, location, status: item.status, is_small: isSmall });
       } else if (type === 'operators') {
         onUpdateOperator(item.id, { name: name.trim(), operator_number: code.trim().toUpperCase() });
       } else if (type === 'parts') {
@@ -101,7 +104,7 @@ export default function AdminCrudView({
       setEditingItem(null);
     } else {
       if (subTab === 'machines') {
-        onCreateMachine({ name: name.trim(), machine_number: code.trim().toUpperCase(), category, location, status: 'disponible' });
+        onCreateMachine({ name: name.trim(), machine_number: code.trim().toUpperCase(), category, location, status: 'disponible', is_small: isSmall });
       } else if (subTab === 'operators') {
         onCreateOperator({ name: name.trim(), operator_number: code.trim().toUpperCase() });
       } else if (subTab === 'parts') {
@@ -152,12 +155,43 @@ export default function AdminCrudView({
         {subTab === 'machines' && machines.map(item => (
           <div key={item.id} className="history-card">
             <div>
-              <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.name}</div>
+                {item.is_small && (
+                  <span style={{ fontSize: '0.68rem', fontWeight: 'bold', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.4)', padding: '1px 6px', borderRadius: '4px' }}>
+                    PEQUEÑA
+                  </span>
+                )}
+              </div>
               <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px' }}>
                 Número: <strong style={{ color: '#60a5fa' }}>{item.machine_number}</strong> • {item.location || 'Sector A'}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '6px' }}>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <button 
+                type="button"
+                className="btn" 
+                style={{ 
+                  minHeight: '36px', 
+                  padding: '0 10px', 
+                  fontSize: '0.75rem', 
+                  fontWeight: 'bold', 
+                  background: item.is_small ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255,255,255,0.05)', 
+                  color: item.is_small ? '#38bdf8' : '#94a3b8',
+                  border: item.is_small ? '1px solid rgba(56, 189, 248, 0.4)' : '1px solid rgba(255,255,255,0.1)'
+                }}
+                onClick={() => onUpdateMachine(item.id, { 
+                  name: item.name, 
+                  machine_number: item.machine_number, 
+                  category: item.category, 
+                  location: item.location, 
+                  status: item.status, 
+                  is_small: !item.is_small 
+                })}
+                title={item.is_small ? "Sacar del grupo Máquinas Pequeñas" : "Meter al grupo Máquinas Pequeñas"}
+              >
+                {item.is_small ? '★ Pequeña' : '☆ Pequeña'}
+              </button>
               <button className="btn btn-secondary" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => openEdit('machines', item)}>
                 <Edit2 size={15} color="#38bdf8" />
               </button>
@@ -272,6 +306,18 @@ export default function AdminCrudView({
                   <div className="form-group">
                     <label className="form-label">Ubicación</label>
                     <input type="text" className="form-input" value={location} onChange={(e) => setLocation(e.target.value)} />
+                  </div>
+                  <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                    <input 
+                      type="checkbox" 
+                      id="is_small_machine" 
+                      checked={isSmall} 
+                      onChange={(e) => setIsSmall(e.target.checked)} 
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="is_small_machine" style={{ color: '#ffffff', fontSize: '0.9rem', cursor: 'pointer', fontWeight: 'bold' }}>
+                      Esta máquina pertenece al grupo de Máquinas Pequeñas
+                    </label>
                   </div>
                 </>
               )}

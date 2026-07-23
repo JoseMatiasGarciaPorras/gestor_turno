@@ -3,6 +3,8 @@ import { Cpu, RefreshCw } from 'lucide-react';
 import ShiftProductionSheet from './components/ShiftProductionSheet';
 import AdminCrudView from './components/AdminCrudView';
 import ShiftHistoryView from './components/ShiftHistoryView';
+import OperatorsList from './components/OperatorsList';
+import RosterView from './components/RosterView';
 import BottomNav from './components/BottomNav';
 
 const getApiBaseUrl = () => {
@@ -22,6 +24,8 @@ export default function App() {
   const [parts, setParts] = useState([]);
   const [shiftSheets, setShiftSheets] = useState([]);
   const [currentSheet, setCurrentSheet] = useState(null);
+  const [weeklyHistory, setWeeklyHistory] = useState(null);
+  const [weeklySnapshots, setWeeklySnapshots] = useState([]);
   
   // Vistas principales: 'sheet' | 'crud'
   const [activeTab, setActiveTab] = useState('sheet'); 
@@ -62,6 +66,24 @@ export default function App() {
 
         if (mergedSheets.length > 0) setCurrentSheet(mergedSheets[0]);
         setError(null);
+
+        // Fetch weekly roster data
+        try {
+          const [resHist, resSnaps] = await Promise.all([
+            fetch(`${API_BASE_URL}/weekly-history/current`),
+            fetch(`${API_BASE_URL}/weekly-snapshots`)
+          ]);
+          if (resHist.ok) {
+            const histData = await resHist.json();
+            setWeeklyHistory(histData);
+          }
+          if (resSnaps.ok) {
+            const snapsData = await resSnaps.json();
+            setWeeklySnapshots(snapsData);
+          }
+        } catch (e) {
+          console.warn("Error cargando historial de cuadrante:", e);
+        }
       } else {
         throw new Error("Error en servidor backend");
       }
@@ -89,9 +111,9 @@ export default function App() {
       if (cachedOp) setOperators(JSON.parse(cachedOp));
       else {
         const defOp = [
-          { id: 1, name: "Natalia", operator_number: "247" },
-          { id: 2, name: "Diantra", operator_number: "214" },
-          { id: 3, name: "Rocío", operator_number: "237" }
+          { id: 1, name: "Natalia", operator_number: "247", is_active: true },
+          { id: 2, name: "Diantra", operator_number: "214", is_active: true },
+          { id: 3, name: "Rocío", operator_number: "237", is_active: true }
         ];
         setOperators(defOp);
         localStorage.setItem('gestor_operators', JSON.stringify(defOp));
@@ -190,11 +212,11 @@ export default function App() {
       const res = await fetch(`${API_BASE_URL}/operators`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(opData)
+        body: JSON.stringify({ ...opData, is_active: true })
       });
       if (res.ok) { await fetchData(); return; }
     } catch (e) {}
-    const updated = [...operators, { ...opData, id: Date.now() }];
+    const updated = [...operators, { ...opData, id: Date.now(), is_active: true }];
     setOperators(updated);
     localStorage.setItem('gestor_operators', JSON.stringify(updated));
   };
@@ -219,6 +241,30 @@ export default function App() {
       if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = operators.filter(o => o.id !== id);
+    setOperators(updated);
+    localStorage.setItem('gestor_operators', JSON.stringify(updated));
+  };
+
+  const handleToggleOperatorActive = async (operator) => {
+    try {
+      const updatedPayload = {
+        name: operator.name,
+        operator_number: operator.operator_number,
+        is_active: !operator.is_active
+      };
+      const res = await fetch(`${API_BASE_URL}/operators/${operator.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedPayload)
+      });
+      if (res.ok) {
+        await fetchData();
+        return;
+      }
+    } catch (e) {
+      console.warn("Error enviando estado de operario activo al backend:", e);
+    }
+    const updated = operators.map(o => o.id === operator.id ? { ...o, is_active: !o.is_active } : o);
     setOperators(updated);
     localStorage.setItem('gestor_operators', JSON.stringify(updated));
   };
@@ -333,6 +379,22 @@ export default function App() {
           currentSheet={currentSheet}
           onSaveSheet={handleSaveSheet}
           onOpenHtmlReport={handleOpenHtmlReport}
+        />
+      )}
+
+      {activeTab === 'operators' && (
+        <OperatorsList 
+          operators={operators}
+          onToggleActive={handleToggleOperatorActive}
+          onCreateOperator={handleCreateOperator}
+        />
+      )}
+
+      {activeTab === 'roster' && (
+        <RosterView 
+          weeklyHistory={weeklyHistory}
+          weeklySnapshots={weeklySnapshots}
+          onRefresh={fetchData}
         />
       )}
 

@@ -9,6 +9,7 @@ class Operator(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     operator_number = Column(String(50), unique=True, index=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     production_items = relationship("ProductionItem", back_populates="operator")
@@ -22,6 +23,7 @@ class Machine(Base):
     category = Column(String(50), default="General")
     status = Column(String(30), default="disponible")
     location = Column(String(100), nullable=True)
+    is_small = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     production_items = relationship("ProductionItem", back_populates="machine")
@@ -89,3 +91,12 @@ class ProductionItem(Base):
     machine = relationship("Machine", back_populates="production_items")
     part = relationship("Part", back_populates="production_items")
     operator = relationship("Operator", back_populates="production_items")
+
+class WeeklySnapshot(Base):
+    __tablename__ = "weekly_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    week_start_date = Column(Date, unique=True, index=True, nullable=False)
+    week_end_date = Column(Date, nullable=False)
+    snapshot_data = Column(Text, nullable=False)  # JSON text
+    created_at = Column(DateTime, default=datetime.utcnow)

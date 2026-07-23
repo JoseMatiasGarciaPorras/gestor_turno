@@ -1,89 +1,141 @@
 import React, { useState } from 'react';
-import { UserCheck, Plus, User, Hash } from 'lucide-react';
+import { Users, Search, Hash, Check, X } from 'lucide-react';
 
-export default function OperatorsList({ operators, onCreateOperator }) {
-  const [name, setName] = useState('');
-  const [operatorNumber, setOperatorNumber] = useState('');
-  const [showForm, setShowForm] = useState(false);
+export default function OperatorsList({ operators = [], onToggleActive }) {
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!name.trim() || !operatorNumber.trim()) return;
+  const filteredOperators = operators.filter(op => 
+    op.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    op.operator_number.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-    onCreateOperator({
-      name: name.trim(),
-      operator_number: operatorNumber.trim().toUpperCase()
-    });
+  const activeCount = operators.filter(op => op.is_active).length;
 
-    setName('');
-    setOperatorNumber('');
-    setShowForm(false);
+  const handleToggleAll = async (status) => {
+    const targetOps = operators.filter(op => !!op.is_active !== status);
+    // Execute sequentially to avoid race conditions or network congestion
+    for (const op of targetOps) {
+      await onToggleActive(op);
+    }
   };
 
   return (
     <div style={{ marginTop: '10px' }}>
-      <div className="section-header">
-        <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <UserCheck size={20} color="#3b82f6" /> Operarios Registrados
-        </h2>
-        <button 
-          className="btn btn-primary" 
-          style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }}
-          onClick={() => setShowForm(!showForm)}
-        >
-          <Plus size={14} /> {showForm ? 'Cancelar' : 'Nuevo Operario'}
-        </button>
+      {/* SECTION HEADER & SUMMARY CARD */}
+      <div style={{ 
+        background: 'var(--bg-card)', 
+        padding: '20px', 
+        borderRadius: 'var(--radius-lg)', 
+        marginBottom: '16px', 
+        border: '1px solid var(--border-color)', 
+        boxShadow: '0 4px 20px rgba(0,0,0,0.2)' 
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Users size={22} /> Disponibilidad de Personal
+          </h2>
+          <span style={{ 
+            fontSize: '0.8rem', 
+            fontWeight: 'bold', 
+            background: 'rgba(16, 185, 129, 0.15)', 
+            color: '#10b981', 
+            padding: '4px 12px', 
+            borderRadius: '20px',
+            border: '1px solid rgba(16, 185, 129, 0.3)'
+          }}>
+            Activos en Turno: {activeCount} / {operators.length}
+          </span>
+        </div>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', lineHeight: '1.4' }}>
+          Configura qué operarios están presentes para este turno. Solo los operarios marcados como **Activos** estarán seleccionables para asignarse a las máquinas y puestos de montaje en el borrador de producción.
+        </p>
+
+        {/* SEARCH AND BULK ACTIONS */}
+        <div style={{ display: 'flex', gap: '10px', marginTop: '16px', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
+            <input 
+              type="text" 
+              className="form-input" 
+              style={{ minHeight: '42px', paddingLeft: '38px', fontSize: '0.88rem' }}
+              placeholder="Buscar operario por nombre o nº..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '13px' }} />
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              className="btn btn-secondary" 
+              style={{ minHeight: '42px', padding: '0 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+              onClick={() => handleToggleAll(true)}
+            >
+              <Check size={14} color="#10b981" /> Activar Todos
+            </button>
+            <button 
+              className="btn btn-secondary" 
+              style={{ minHeight: '42px', padding: '0 12px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+              onClick={() => handleToggleAll(false)}
+            >
+              <X size={14} color="#f43f5e" /> Desactivar Todos
+            </button>
+          </div>
+        </div>
       </div>
 
-      {showForm && (
-        <form onSubmit={handleSubmit} style={{ background: 'var(--bg-card)', padding: '16px', borderRadius: 'var(--radius-lg)', marginBottom: '16px', border: '1px solid var(--border-color)' }}>
-          <h3 style={{ fontSize: '1rem', marginBottom: '12px' }}>Registrar Nuevo Operario</h3>
-          
-          <div className="form-group">
-            <label className="form-label">Nombre Completo</label>
-            <input 
-              type="text" 
-              className="form-input" 
-              placeholder="Ej. Manuel Rodríguez" 
-              value={name} 
-              onChange={(e) => setName(e.target.value)} 
-              required 
-            />
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Número de Operario Único (Manual)</label>
-            <input 
-              type="text" 
-              className="form-input" 
-              placeholder="Ej. OP-4029" 
-              value={operatorNumber} 
-              onChange={(e) => setOperatorNumber(e.target.value)} 
-              required 
-            />
-          </div>
-
-          <button type="submit" className="btn btn-success" style={{ width: '100%' }}>
-            Guardar Operario
-          </button>
-        </form>
-      )}
-
-      {operators.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '30px 20px', color: '#94a3b8' }}>
-          No hay operarios registrados aún.
+      {/* OPERATORS GRID */}
+      {filteredOperators.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)', background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
+          No se encontraron operarios con el término de búsqueda.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '12px' }}>
-          {operators.map(op => (
-            <div key={op.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: '600', fontSize: '1rem', color: '#ffffff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <User size={16} color="#60a5fa" /> {op.name}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
+          {filteredOperators.map(op => (
+            <div 
+              key={op.id} 
+              className="history-card" 
+              style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                justifyContent: 'space-between', 
+                background: op.is_active ? 'var(--bg-card)' : 'rgba(19, 27, 46, 0.4)',
+                border: op.is_active ? '1px solid rgba(16, 185, 129, 0.2)' : '1px solid var(--border-color)',
+                opacity: op.is_active ? 1 : 0.7,
+                transition: 'all 0.2s ease',
+                padding: '16px'
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ 
+                  fontWeight: '600', 
+                  fontSize: '1.02rem', 
+                  color: op.is_active ? '#ffffff' : 'var(--text-secondary)'
+                }}>
+                  {op.name}
                 </span>
-                <span className="machine-code" style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa', fontWeight: 'bold' }}>
-                  <Hash size={12} style={{ display: 'inline', marginRight: '2px' }} />{op.operator_number}
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  <Hash size={12} /> Nº {op.operator_number}
                 </span>
+              </div>
+
+              {/* Toggle Switch */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  fontWeight: '600', 
+                  color: op.is_active ? '#10b981' : 'var(--text-muted)',
+                  textTransform: 'uppercase'
+                }}>
+                  {op.is_active ? 'Activo' : 'Baja'}
+                </span>
+                <label className="switch">
+                  <input 
+                    type="checkbox" 
+                    checked={!!op.is_active} 
+                    onChange={() => onToggleActive(op)}
+                  />
+                  <span className="slider"></span>
+                </label>
               </div>
             </div>
           ))}

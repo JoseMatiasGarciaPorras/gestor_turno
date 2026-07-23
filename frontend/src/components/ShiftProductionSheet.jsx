@@ -94,7 +94,9 @@ export default function ShiftProductionSheet({
           ? normRefs.map((r, rIdx) => ({ id: Date.now() + idx * 10 + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
           : [{ id: Date.now() + idx, code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
 
-        const matchedOp = operators[idx % operators.length] || null;
+        const activeOps = operators.filter(o => o.is_active !== false);
+        const targetOps = activeOps.length > 0 ? activeOps : operators;
+        const matchedOp = targetOps[idx % targetOps.length] || null;
 
         return {
           id: Date.now() + idx,
@@ -128,6 +130,31 @@ export default function ShiftProductionSheet({
     }
   }, [productionDate, shiftName, supervisor, incidentsNotes, machineEntries, montajeEntries]);
 
+  // Desasignar operario si una máquina deja de pertenecer al grupo de Máquinas Pequeñas
+  const prevMachinesRef = useRef(machines);
+  useEffect(() => {
+    const prevMachines = prevMachinesRef.current;
+    if (prevMachines && prevMachines.length > 0 && machines.length > 0) {
+      const transitionedToNotSmall = [];
+      machines.forEach(mac => {
+        const prevMac = prevMachines.find(m => m.id === mac.id);
+        if (prevMac && prevMac.is_small && !mac.is_small) {
+          transitionedToNotSmall.push(mac.name);
+        }
+      });
+
+      if (transitionedToNotSmall.length > 0) {
+        setMachineEntries(prev => prev.map(entry => {
+          if (transitionedToNotSmall.includes(entry.machine_name)) {
+            return { ...entry, operator_name: '', operator_number: '' };
+          }
+          return entry;
+        }));
+      }
+    }
+    prevMachinesRef.current = machines;
+  }, [machines]);
+
   // Handler para reiniciar el borrador
   const handleResetDraft = () => {
     setShowConfirmReset(true);
@@ -149,7 +176,30 @@ export default function ShiftProductionSheet({
   const addMachineEntry = () => {
     const defaultMac = machines[0]?.name || 'ENGEL 300';
     const defaultPart = parts[0] || { name: 'Pieza General', references_list: [{ code: '90100108', side_type: 'Única' }] };
-    const defaultOp = operators[0] || { name: 'Natalia', operator_number: '247' };
+    
+    // Si la máquina por defecto es pequeña, heredar el operario de otra máquina pequeña si existe
+    const defaultMacDetails = machines.find(mac => mac.name === defaultMac);
+    const isDefaultSmall = defaultMacDetails ? !!defaultMacDetails.is_small : false;
+    let defaultOpName = '';
+    let defaultOpNumber = '';
+
+    if (isDefaultSmall) {
+      const existingSmallEntry = machineEntries.find(m => {
+        const details = machines.find(mac => mac.name === m.machine_name);
+        return details && details.is_small && m.operator_name;
+      });
+      if (existingSmallEntry) {
+        defaultOpName = existingSmallEntry.operator_name;
+        defaultOpNumber = existingSmallEntry.operator_number;
+      }
+    }
+
+    if (!defaultOpName) {
+      const activeOps = operators.filter(o => o.is_active !== false);
+      const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
+      defaultOpName = defaultOp.name;
+      defaultOpNumber = defaultOp.operator_number;
+    }
 
     const normRefs = getNormalizedReferences(defaultPart);
     const initialSubRefs = normRefs.length > 0 
@@ -160,8 +210,8 @@ export default function ShiftProductionSheet({
       id: Date.now(),
       machine_name: defaultMac,
       part_name: defaultPart.name,
-      operator_name: defaultOp.name,
-      operator_number: defaultOp.operator_number,
+      operator_name: defaultOpName,
+      operator_number: defaultOpNumber,
       is_montaje: false,
       references: initialSubRefs
     };
@@ -174,17 +224,55 @@ export default function ShiftProductionSheet({
   };
 
   const updateMachineField = (id, field, value) => {
-    setMachineEntries(machineEntries.map(m => {
-      if (m.id === id) {
-        const updated = { ...m, [field]: value };
-        if (field === 'operator_name') {
-          const matchedOp = operators.find(o => o.name === value);
-          if (matchedOp) updated.operator_number = matchedOp.operator_number;
+    const entryToUpdate = machineEntries.find(m => m.id === id);
+    if (!entryToUpdate) return;
+
+    if (field === 'operator_name') {
+      const matchedOp = operators.find(o => o.name === value);
+      const operatorNumber = matchedOp ? matchedOp.operator_number : '';
+
+      // Comprobar si la máquina que se está editando pertenece al grupo de Máquinas Pequeñas
+      const currentMac = machines.find(mac => mac.name === entryToUpdate.machine_name);
+      const isCurrentMacSmall = currentMac ? !!currentMac.is_small : false;
+
+      setMachineEntries(prev => prev.map(m => {
+        if (m.id === id) {
+          return { ...m, operator_name: value, operator_number: operatorNumber };
         }
-        return updated;
-      }
-      return m;
-    }));
+        // Si la máquina modificada es pequeña, sincronizar con todas las demás máquinas pequeñas activas
+        if (isCurrentMacSmall) {
+          const macDetails = machines.find(mac => mac.name === m.machine_name);
+          if (macDetails && macDetails.is_small) {
+            return { ...m, operator_name: value, operator_number: operatorNumber };
+          }
+        }
+        return m;
+      }));
+    } else if (field === 'machine_name') {
+      const targetMacDetails = machines.find(mac => mac.name === value);
+      const isTargetSmall = targetMacDetails ? !!targetMacDetails.is_small : false;
+
+      setMachineEntries(prev => prev.map(m => {
+        if (m.id === id) {
+          const updated = { ...m, machine_name: value };
+          // Si cambiamos a una máquina pequeña, heredar el operario de otra máquina pequeña si existe
+          if (isTargetSmall) {
+            const existingSmallEntry = prev.find(entry => {
+              const details = machines.find(mac => mac.name === entry.machine_name);
+              return entry.id !== id && details && details.is_small && entry.operator_name;
+            });
+            if (existingSmallEntry) {
+              updated.operator_name = existingSmallEntry.operator_name;
+              updated.operator_number = existingSmallEntry.operator_number;
+            }
+          }
+          return updated;
+        }
+        return m;
+      }));
+    } else {
+      setMachineEntries(prev => prev.map(m => (m.id === id ? { ...m, [field]: value } : m)));
+    }
   };
 
   // Seleccionar Pieza para una Máquina y auto-cargar TODAS sus referencias
@@ -239,9 +327,11 @@ export default function ShiftProductionSheet({
 
   // Montaje Handlers
   const addMontajeEntry = () => {
+    const activeOps = operators.filter(o => o.is_active !== false);
+    const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
     setMontajeEntries([
       ...montajeEntries,
-      { id: Date.now(), part_reference: '', quantity_ok: 0, quantity_ko: 0, is_csl1: false, operator_name: operators[0]?.name || '', operator_number: operators[0]?.operator_number || '' }
+      { id: Date.now(), part_reference: '', quantity_ok: 0, quantity_ko: 0, is_csl1: false, operator_name: defaultOp.name, operator_number: defaultOp.operator_number }
     ]);
   };
 
@@ -480,7 +570,14 @@ export default function ShiftProductionSheet({
               {/* CABECERA DE LA MÁQUINA: SELECTOR DE MÁQUINA + OPERARIO + BOTÓN DE BORRAR */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
                 <div>
-                  <label className="form-label" style={{ fontSize: '0.7rem' }}>MÁQUINA</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <label className="form-label" style={{ fontSize: '0.7rem', margin: 0 }}>MÁQUINA</label>
+                    {machines.find(mac => mac.name === m.machine_name)?.is_small && (
+                      <span style={{ fontSize: '0.62rem', fontWeight: 'bold', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', padding: '1px 4px', borderRadius: '3px', border: '1px solid rgba(56, 189, 248, 0.3)', lineHeight: 1 }}>
+                        PEQUEÑA
+                      </span>
+                    )}
+                  </div>
                   <select 
                     className="form-select" 
                     style={{ minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
@@ -488,7 +585,9 @@ export default function ShiftProductionSheet({
                     onChange={(e) => updateMachineField(m.id, 'machine_name', e.target.value)}
                   >
                     {machines.length > 0 ? machines.map(mac => (
-                      <option key={mac.id} value={mac.name}>{mac.name}</option>
+                      <option key={mac.id} value={mac.name}>
+                        {mac.name}{mac.is_small ? ' (Pequeña)' : ''}
+                      </option>
                     )) : (
                       <option value={m.machine_name}>{m.machine_name}</option>
                     )}
@@ -503,11 +602,19 @@ export default function ShiftProductionSheet({
                     value={m.operator_name}
                     onChange={(e) => updateMachineField(m.id, 'operator_name', e.target.value)}
                   >
-                    {operators.map(op => (
-                      <option key={op.id} value={op.name}>
-                        Nº {op.operator_number} - {op.name}
-                      </option>
-                    ))}
+                    {(() => {
+                      const activeOps = operators.filter(op => op.is_active !== false);
+                      const list = [...activeOps];
+                      if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
+                        const matched = operators.find(op => op.name === m.operator_name);
+                        if (matched) list.push(matched);
+                      }
+                      return list.map(op => (
+                        <option key={op.id} value={op.name}>
+                          Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
+                        </option>
+                      ));
+                    })()}
                   </select>
                 </div>
 
@@ -728,9 +835,19 @@ export default function ShiftProductionSheet({
               <div>
                 <label className="form-label" style={{ fontSize: '0.72rem' }}>OPERARIO</label>
                 <select className="form-select" value={m.operator_name} onChange={(e) => updateMontajeEntry(m.id, 'operator_name', e.target.value)}>
-                  {operators.map(op => (
-                    <option key={op.id} value={op.name}>Nº {op.operator_number} - {op.name}</option>
-                  ))}
+                  {(() => {
+                    const activeOps = operators.filter(op => op.is_active !== false);
+                    const list = [...activeOps];
+                    if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
+                      const matched = operators.find(op => op.name === m.operator_name);
+                      if (matched) list.push(matched);
+                    }
+                    return list.map(op => (
+                      <option key={op.id} value={op.name}>
+                        Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
+                      </option>
+                    ));
+                  })()}
                 </select>
               </div>
             </div>

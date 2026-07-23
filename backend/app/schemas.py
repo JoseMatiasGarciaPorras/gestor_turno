@@ -6,6 +6,7 @@ from datetime import datetime, date
 class OperatorBase(BaseModel):
     name: str
     operator_number: str
+    is_active: bool = True
 
 class OperatorCreate(OperatorBase):
     pass
@@ -54,6 +55,7 @@ class MachineBase(BaseModel):
     machine_number: str
     category: Optional[str] = "General"
     location: Optional[str] = None
+    is_small: Optional[bool] = False
 
 class MachineCreate(MachineBase):
     status: Optional[str] = "disponible"
@@ -126,3 +128,13 @@ class SummaryResponse(BaseModel):
     total_operators: int
     total_parts: int
     total_sheets: int
+
+class WeeklySnapshotResponse(BaseModel):
+    id: int
+    week_start_date: date
+    week_end_date: date
+    snapshot_data: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

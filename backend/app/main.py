@@ -6,13 +6,13 @@ from typing import List, Optional
 from datetime import datetime, date
 
 from app.database import engine, Base, get_db
-from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem
+from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot
 from app.schemas import (
     MachineCreate, MachineResponse, MachineStatusUpdate,
     OperatorCreate, OperatorResponse,
     PartCreate, PartResponse,
     ShiftSheetCreate, ShiftSheetResponse,
-    SummaryResponse
+    SummaryResponse, WeeklySnapshotResponse
 )
 
 # Recrear o actualizar tablas si no existen
@@ -21,7 +21,7 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Gestor de Turnos y Planta de Producción API",
     description="API RESTful Mobile-First para control de Máquinas, Operarios, Piezas y Partes de Producción Diarios.",
-    version="1.0.0-beta.1"
+    version="1.0.0-beta.3"
 )
 
 app.add_middleware(
@@ -96,6 +96,107 @@ def seed_initial_data(db: Session):
         db.add_all([r1, r2, r3, r4, r5])
         db.commit()
 
+def compile_weekly_history(start_date: date, db: Session):
+    from datetime import timedelta
+    from sqlalchemy.orm import joinedload
+    
+    end_date = start_date + timedelta(days=6)
+    operators = db.query(Operator).order_by(Operator.name.asc()).all()
+    
+    sheets = db.query(ShiftSheet)\
+        .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.machine))\
+        .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.operator))\
+        .filter(ShiftSheet.production_date >= start_date)\
+        .filter(ShiftSheet.production_date <= end_date)\
+        .all()
+    
+    days_names = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    
+    history_map = []
+    for op in operators:
+        op_days = {day: [] for day in days_names}
+        
+        for sheet in sheets:
+            day_idx = sheet.production_date.weekday()
+            day_name = days_names[day_idx]
+            
+            for item in sheet.items:
+                is_match = False
+                if item.operator_id == op.id:
+                    is_match = True
+                elif item.operator_name_manual == op.name or item.operator_number_manual == op.operator_number:
+                    is_match = True
+                    
+                if is_match:
+                    if item.is_montaje:
+                        label = "Montaje"
+                    elif item.machine:
+                        if item.machine.is_small:
+                            label = "Grupo M. Pequeñas"
+                        else:
+                            label = item.machine.name
+                    elif item.machine_name_manual:
+                        db_mac = db.query(Machine).filter(Machine.name == item.machine_name_manual).first()
+                        if db_mac and db_mac.is_small:
+                            label = "Grupo M. Pequeñas"
+                        elif item.machine_name_manual.upper() == "MONTAJE":
+                            label = "Montaje"
+                        else:
+                            label = item.machine_name_manual
+                    else:
+                        label = "-"
+                        
+                    if label not in op_days[day_name] and label != "-":
+                        op_days[day_name].append(label)
+        
+        formatted_days = {day: (", ".join(op_days[day]) if op_days[day] else "-") for day in days_names}
+        
+        history_map.append({
+            "operator_id": op.id,
+            "operator_name": op.name,
+            "operator_number": op.operator_number,
+            "is_active": op.is_active,
+            "days": formatted_days
+        })
+        
+    return {
+        "week_start_date": start_date.isoformat(),
+        "week_end_date": end_date.isoformat(),
+        "history": history_map
+    }
+
+def generate_past_week_snapshots(db: Session):
+    try:
+        from datetime import date, timedelta
+        import json
+        
+        today = date.today()
+        current_monday = today - timedelta(days=today.weekday())
+        
+        for i in range(1, 5):
+            past_monday = current_monday - timedelta(days=7 * i)
+            past_sunday = past_monday + timedelta(days=6)
+            
+            existing = db.query(WeeklySnapshot).filter(WeeklySnapshot.week_start_date == past_monday).first()
+            if not existing:
+                has_sheets = db.query(ShiftSheet).filter(
+                    ShiftSheet.production_date >= past_monday,
+                    ShiftSheet.production_date <= past_sunday
+                ).first() is not None
+                
+                if has_sheets:
+                    compiled = compile_weekly_history(past_monday, db)
+                    snapshot = WeeklySnapshot(
+                        week_start_date=past_monday,
+                        week_end_date=past_sunday,
+                        snapshot_data=json.dumps(compiled)
+                    )
+                    db.add(snapshot)
+                    db.commit()
+                    print(f"Generada instantánea semanal para: {past_monday} al {past_sunday}")
+    except Exception as e:
+        print(f"Error generando instantáneas semanales: {e}")
+
 @app.on_event("startup")
 def startup_event():
     db = next(get_db())
@@ -112,6 +213,18 @@ def startup_event():
             db.commit()
         except Exception:
             pass
+        try:
+            db.execute(text("ALTER TABLE machines ADD COLUMN is_small BOOLEAN DEFAULT FALSE"))
+            db.commit()
+        except Exception:
+            pass
+        try:
+            db.execute(text("ALTER TABLE operators ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
+            db.commit()
+        except Exception:
+            pass
+        # Generar instantáneas de semanas anteriores concluidas
+        generate_past_week_snapshots(db)
         seed_initial_data(db)
     finally:
         db.close()
@@ -128,7 +241,7 @@ def create_operator(operator: OperatorCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail=f"Ya existe un operario con el número '{operator.operator_number}'.")
     
-    db_op = Operator(name=operator.name, operator_number=operator.operator_number)
+    db_op = Operator(name=operator.name, operator_number=operator.operator_number, is_active=operator.is_active)
     db.add(db_op)
     db.commit()
     db.refresh(db_op)
@@ -141,6 +254,7 @@ def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Dep
         raise HTTPException(status_code=404, detail="Operario no encontrado.")
     op.name = payload.name
     op.operator_number = payload.operator_number
+    op.is_active = payload.is_active
     db.commit()
     db.refresh(op)
     return op
@@ -225,7 +339,8 @@ def create_machine(machine: MachineCreate, db: Session = Depends(get_db)):
         machine_number=machine.machine_number,
         category=machine.category,
         location=machine.location,
-        status=machine.status or "disponible"
+        status=machine.status or "disponible",
+        is_small=machine.is_small or False
     )
     db.add(db_mac)
     db.commit()
@@ -243,6 +358,7 @@ def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depend
     mac.location = payload.location
     if payload.status:
         mac.status = payload.status
+    mac.is_small = payload.is_small if payload.is_small is not None else False
     db.commit()
     db.refresh(mac)
     return mac
@@ -448,3 +564,28 @@ def get_summary(db: Session = Depends(get_db)):
         total_parts=db.query(Part).count(),
         total_sheets=db.query(ShiftSheet).count()
     )
+
+# --- HISTORIAL SEMANAL Y CUADRANTES ---
+
+@app.get("/api/weekly-history/current")
+def get_current_weekly_history(db: Session = Depends(get_db)):
+    from datetime import date, timedelta
+    today = date.today()
+    current_monday = today - timedelta(days=today.weekday())
+    return compile_weekly_history(current_monday, db)
+
+@app.post("/api/weekly-snapshots/trigger")
+def trigger_weekly_snapshots(db: Session = Depends(get_db)):
+    generate_past_week_snapshots(db)
+    return {"status": "success", "message": "Comprobación de instantáneas completada."}
+
+@app.get("/api/weekly-snapshots", response_model=List[WeeklySnapshotResponse])
+def get_weekly_snapshots(db: Session = Depends(get_db)):
+    return db.query(WeeklySnapshot).order_by(WeeklySnapshot.week_start_date.desc()).all()
+
+@app.get("/api/weekly-snapshots/{snapshot_id}", response_model=WeeklySnapshotResponse)
+def get_weekly_snapshot(snapshot_id: int, db: Session = Depends(get_db)):
+    snapshot = db.query(WeeklySnapshot).filter(WeeklySnapshot.id == snapshot_id).first()
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Instantánea semanal no encontrada.")
+    return snapshot
