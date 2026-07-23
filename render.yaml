@@ -26,7 +26,7 @@ services:
         fromService:
           type: web
           name: gestor-turno-backend
-          property: host
+          property: url
 
 databases:
   - name: gestor-turno-db
