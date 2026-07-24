@@ -496,16 +496,20 @@ export default function App() {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           {error && (
-            <span style={{ 
-              fontSize: '0.72rem', 
-              color: '#f87171', 
-              background: 'rgba(239, 68, 68, 0.15)', 
-              padding: '4px 10px', 
-              borderRadius: '12px', 
-              border: '1px solid rgba(239, 68, 68, 0.3)',
-              fontWeight: 'bold' 
-            }}>
-              ⚠️ Modo Offline
+            <span 
+              title={`Intentando conectar a: ${API_BASE_URL}`}
+              style={{ 
+                fontSize: '0.72rem', 
+                color: '#f87171', 
+                background: 'rgba(239, 68, 68, 0.15)', 
+                padding: '4px 10px', 
+                borderRadius: '12px', 
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                fontWeight: 'bold',
+                cursor: 'help'
+              }}
+            >
+              ⚠️ Offline ({API_BASE_URL})
             </span>
           )}
           <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}>
