@@ -2,6 +2,7 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -31,17 +32,46 @@ def get_database_url():
         return f"mysql+pymysql://{MYSQL_USER}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
 
 # Try initializing database engine with MySQL, fallback to SQLite if MySQL fails
+is_explicit_db = bool(os.getenv("DATABASE_URL") or os.getenv("MYSQL_HOST") or os.getenv("MYSQL_PASSWORD"))
+
 try:
     DATABASE_URL = get_database_url()
     if "sqlite" in DATABASE_URL:
         engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
     else:
-        engine = create_engine(DATABASE_URL, pool_recycle=3600)
-        # Test connection
-        with engine.connect() as conn:
-            pass
+        # Remote database (PostgreSQL / MySQL)
+        # Try to connect with retries to avoid race conditions on startup
+        retries = 5
+        connected = False
+        last_exception = None
+        for i in range(retries):
+            try:
+                engine = create_engine(DATABASE_URL, pool_recycle=3600)
+                # Test connection
+                with engine.connect() as conn:
+                    pass
+                connected = True
+                print(f"Successfully connected to remote database: {DATABASE_URL.split('@')[-1]}")
+                break
+            except Exception as e:
+                last_exception = e
+                print(f"Database connection attempt {i+1}/{retries} failed ({e}). Retrying in 2 seconds...")
+                time.sleep(2)
+        
+        if not connected:
+            if is_explicit_db or os.getenv("RENDER"):
+                # In production or explicit configuration, crash instead of falling back to silent SQLite
+                print(f"Error: Could not connect to explicit database ({last_exception}). Crashing to prevent silent data loss.")
+                raise last_exception
+            else:
+                # Fallback to local SQLite for simple local dev
+                print(f"Warning: Remote connection failed ({last_exception}). Falling back to local SQLite database.")
+                DATABASE_URL = "sqlite:///./gestor_turnos.db"
+                engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 except Exception as e:
-    print(f"Warning: MySQL connection failed ({e}). Falling back to local SQLite database.")
+    if is_explicit_db or os.getenv("RENDER"):
+        raise e
+    print(f"Warning: Database connection failed ({e}). Falling back to local SQLite database.")
     DATABASE_URL = "sqlite:///./gestor_turnos.db"
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 

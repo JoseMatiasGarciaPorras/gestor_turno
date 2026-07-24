@@ -173,24 +173,56 @@ export default function App() {
         const partsData = await resParts.json();
         const sheetsData = await resSheets.json();
 
-        setMachines(macsData);
-        setOperators(opsData);
-        setParts(partsData);
-        localStorage.setItem('gestor_machines', JSON.stringify(macsData));
-        localStorage.setItem('gestor_operators', JSON.stringify(opsData));
-        localStorage.setItem('gestor_parts', JSON.stringify(partsData));
+        // Fusionar datos de la API con los locales offline para evitar pérdidas de CRUD locales
+        const cachedMacRaw = localStorage.getItem('gestor_machines');
+        const cachedMac = cachedMacRaw ? JSON.parse(cachedMacRaw) : [];
+        const offlineMac = cachedMac.filter(m => m && m.id && Number(m.id) > 1000000000000);
+        const mergedMacMap = new Map();
+        [...macsData, ...offlineMac].forEach(m => {
+          if (m && m.id) mergedMacMap.set(String(m.id), m);
+        });
+        const mergedMacs = Array.from(mergedMacMap.values());
+        setMachines(mergedMacs);
+        localStorage.setItem('gestor_machines', JSON.stringify(mergedMacs));
+
+        const cachedOpRaw = localStorage.getItem('gestor_operators');
+        const cachedOp = cachedOpRaw ? JSON.parse(cachedOpRaw) : [];
+        const offlineOp = cachedOp.filter(o => o && o.id && Number(o.id) > 1000000000000);
+        const mergedOpMap = new Map();
+        [...opsData, ...offlineOp].forEach(o => {
+          if (o && o.id) mergedOpMap.set(String(o.id), o);
+        });
+        const mergedOps = Array.from(mergedOpMap.values());
+        setOperators(mergedOps);
+        localStorage.setItem('gestor_operators', JSON.stringify(mergedOps));
+
+        const cachedPartsRaw = localStorage.getItem('gestor_parts');
+        const cachedParts = cachedPartsRaw ? JSON.parse(cachedPartsRaw) : [];
+        const offlineParts = cachedParts.filter(p => p && p.id && Number(p.id) > 1000000000000);
+        const mergedPartsMap = new Map();
+        [...partsData, ...offlineParts].forEach(p => {
+          if (p && p.id) mergedPartsMap.set(String(p.id), p);
+        });
+        const mergedParts = Array.from(mergedPartsMap.values());
+        setParts(mergedParts);
+        localStorage.setItem('gestor_parts', JSON.stringify(mergedParts));
 
         // Fusionar hojas de la API con historial en localStorage para evitar pérdidas ante reinicios del backend
         const cachedSheetsRaw = localStorage.getItem('gestor_shift_sheets');
         const cachedSheets = cachedSheetsRaw ? JSON.parse(cachedSheetsRaw) : [];
         
-        // Mantener solo partes locales offline (ID tipo Date.now())
-        const offlineSheets = cachedSheets.filter(s => s && s.id && Number(s.id) > 1000000000000);
-        
         const mergedMap = new Map();
-        [...sheetsData, ...offlineSheets].forEach(s => {
+        
+        // 1. Cargar todas las hojas del caché local (tanto offline como previamente sincronizadas)
+        cachedSheets.forEach(s => {
           if (s && s.id) mergedMap.set(String(s.id), s);
         });
+        
+        // 2. Añadir/Sobrescribir con las hojas obtenidas de la API
+        sheetsData.forEach(s => {
+          if (s && s.id) mergedMap.set(String(s.id), s);
+        });
+        
         const mergedSheets = Array.from(mergedMap.values()).sort((a, b) => b.id - a.id);
 
         setShiftSheets(mergedSheets);
