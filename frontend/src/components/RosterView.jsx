@@ -253,9 +253,11 @@ export default function RosterView({ shiftSheets = [], operators = [], machines 
             <tbody>
               {filteredHistory.map(row => (
                 <tr key={row.operator_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', transition: 'background 0.2s' }}>
-                  <td style={{ padding: '12px 14px', fontWeight: '600', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                    <span>{row.operator_name}</span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Nº {row.operator_number}</span>
+                  <td style={{ padding: '12px 14px', fontWeight: '600', color: '#ffffff' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span>{row.operator_name}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Nº {row.operator_number}</span>
+                    </div>
                   </td>
                   {daysOfWeek.map(day => {
                     const cellVal = row.days[day] || '-';
