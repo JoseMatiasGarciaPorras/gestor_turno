@@ -13,10 +13,25 @@ const getApiBaseUrl = () => {
     const hostname = window.location.hostname;
     return `http://${hostname}:8000/api`;
   }
-  if (envUrl.startsWith('http://') || envUrl.startsWith('https://')) {
-    return envUrl.endsWith('/api') ? envUrl : `${envUrl}/api`;
+  
+  let url = envUrl;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
   }
-  return `https://${envUrl}/api`;
+  
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.includes('.') && parsed.hostname !== 'localhost') {
+      parsed.hostname = `${parsed.hostname}.onrender.com`;
+      url = parsed.toString();
+    }
+  } catch (e) {
+    if (!envUrl.includes('.') && envUrl !== 'localhost') {
+      url = `https://${envUrl}.onrender.com`;
+    }
+  }
+
+  return url.endsWith('/api') ? url : (url.endsWith('/') ? `${url}api` : `${url}/api`);
 };
 
 const API_BASE_URL = getApiBaseUrl();
