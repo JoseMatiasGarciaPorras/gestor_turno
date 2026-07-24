@@ -2,10 +2,147 @@ import React, { useState, useRef } from 'react';
 import { Calendar, Camera, RefreshCw, Layers, Eye, FileText, X } from 'lucide-react';
 import html2canvas from 'html2canvas';
 
-export default function RosterView({ weeklyHistory, weeklySnapshots = [], onRefresh }) {
-  const [subTab, setSubTab] = useState('current'); // 'current' | 'history'
-  const [selectedSnapshot, setSelectedSnapshot] = useState(null); // specific weekly snapshot to view in modal
+const getMondayOfDate = (dateStr) => {
+  const d = new Date(dateStr + 'T12:00:00');
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  const monday = new Date(d.setDate(diff));
+  
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, '0');
+  const dayOfMonth = String(monday.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dayOfMonth}`;
+};
+
+const getSundayOfDate = (mondayStr) => {
+  const d = new Date(mondayStr + 'T12:00:00');
+  d.setDate(d.getDate() + 6);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dayOfMonth = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dayOfMonth}`;
+};
+
+const compileWeeklyHistoryClientSide = (sheets, operators, machines, targetMondayStr) => {
+  const mondayStr = getMondayOfDate(targetMondayStr);
+  const sundayStr = getSundayOfDate(mondayStr);
+
+  const daysOfWeek = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  
+  const filteredSheets = sheets.filter(sheet => {
+    const pDate = sheet.production_date;
+    return pDate >= mondayStr && pDate <= sundayStr;
+  });
+
+  const historyMap = operators.map(op => {
+    const opDays = {
+      "Lunes": [],
+      "Martes": [],
+      "Miércoles": [],
+      "Jueves": [],
+      "Viernes": [],
+      "Sábado": [],
+      "Domingo": []
+    };
+
+    filteredSheets.forEach(sheet => {
+      const sDate = new Date(sheet.production_date + 'T12:00:00');
+      const rawDay = sDate.getDay();
+      const dayIdx = rawDay === 0 ? 6 : rawDay - 1;
+      const dayName = daysOfWeek[dayIdx];
+
+      items.forEach(item => {
+        const opId = item.operator_id || (item.operator && item.operator.id);
+        const opName = item.operator_name_manual || (item.operator && item.operator.name);
+        const opNum = item.operator_number_manual || (item.operator && item.operator.operator_number);
+
+        let isMatch = false;
+        if (opId && Number(opId) === Number(op.id)) {
+          isMatch = true;
+        } else if (
+          (opName && String(opName).trim().toLowerCase() === String(op.name).trim().toLowerCase()) ||
+          (opNum && String(opNum).trim() === String(op.operator_number).trim())
+        ) {
+          isMatch = true;
+        }
+
+        if (isMatch) {
+          let label = "-";
+          const isMontajeItem = item.is_montaje || (item.machine_name_manual && String(item.machine_name_manual).toUpperCase() === 'MONTAJE');
+          
+          if (isMontajeItem) {
+            label = "Montaje";
+          } else if (item.machine && item.machine.name) {
+            if (item.machine.is_small) {
+              label = "Grupo M. Pequeñas";
+            } else {
+              label = item.machine.name;
+            }
+          } else if (item.machine_name_manual) {
+            const dbMac = machines.find(m => String(m.name).toLowerCase() === String(item.machine_name_manual).toLowerCase());
+            if (dbMac && dbMac.is_small) {
+              label = "Grupo M. Pequeñas";
+            } else {
+              label = item.machine_name_manual;
+            }
+          }
+
+          if (label !== "-" && !opDays[dayName].includes(label)) {
+            opDays[dayName].push(label);
+          }
+        }
+      });
+    });
+
+    const formattedDays = {};
+    daysOfWeek.forEach(day => {
+      formattedDays[day] = opDays[day].length > 0 ? opDays[day].join(", ") : "-";
+    });
+
+    return {
+      operator_id: op.id,
+      operator_name: op.name,
+      operator_number: op.operator_number,
+      is_active: op.is_active !== false,
+      days: formattedDays
+    };
+  });
+
+  return {
+    week_start_date: mondayStr,
+    week_end_date: sundayStr,
+    history: historyMap
+  };
+};
+
+export default function RosterView({ shiftSheets = [], operators = [], machines = [], weeklySnapshots = [], onRefresh }) {
+  const [subTab, setSubTab] = useState('current');
+  const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [generatingImage, setGeneratingImage] = useState(false);
+
+  const [currentWeekMonday, setCurrentWeekMonday] = useState(() => {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(today.setDate(diff));
+    return monday.toISOString().split('T')[0];
+  });
+
+  const handlePrevWeek = () => {
+    const d = new Date(currentWeekMonday + 'T12:00:00');
+    d.setDate(d.getDate() - 7);
+    setCurrentWeekMonday(d.toISOString().split('T')[0]);
+  };
+
+  const handleNextWeek = () => {
+    const d = new Date(currentWeekMonday + 'T12:00:00');
+    d.setDate(d.getDate() + 7);
+    setCurrentWeekMonday(d.toISOString().split('T')[0]);
+  };
+
+  const currentWeeklyHistory = React.useMemo(() => {
+    return compileWeeklyHistoryClientSide(shiftSheets, operators, machines, currentWeekMonday);
+  }, [shiftSheets, operators, machines, currentWeekMonday]);
 
   const printAreaRef = useRef(null);
   const modalPrintAreaRef = useRef(null);
@@ -203,15 +340,33 @@ export default function RosterView({ weeklyHistory, weeklySnapshots = [], onRefr
       {/* Roster Current Week */}
       {subTab === 'current' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
+            <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
               <Layers size={18} color="#60a5fa" /> Cuadrante de Turnos Activo
             </h2>
-            <button className="btn btn-secondary" style={{ width: 'auto', minHeight: '34px', padding: '0 10px', fontSize: '0.75rem' }} onClick={onRefresh}>
-              <RefreshCw size={12} /> Actualizar Datos
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button className="btn btn-secondary" style={{ width: 'auto', minHeight: '34px', padding: '0 10px', fontSize: '0.75rem' }} onClick={handlePrevWeek}>
+                ◀ Ant.
+              </button>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#60a5fa', background: 'rgba(59, 130, 246, 0.1)', padding: '6px 12px', borderRadius: '6px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                Semana del {currentWeeklyHistory.week_start_date}
+              </span>
+              <button className="btn btn-secondary" style={{ width: 'auto', minHeight: '34px', padding: '0 10px', fontSize: '0.75rem' }} onClick={handleNextWeek}>
+                Sig. ▶
+              </button>
+              <button className="btn btn-secondary" style={{ width: 'auto', minHeight: '34px', padding: '0 10px', fontSize: '0.75rem' }} onClick={() => {
+                const today = new Date();
+                const day = today.getDay();
+                const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+                const monday = new Date(today.setDate(diff));
+                setCurrentWeekMonday(monday.toISOString().split('T')[0]);
+                onRefresh();
+              }} title="Volver a la semana actual y refrescar">
+                <RefreshCw size={12} />
+              </button>
+            </div>
           </div>
-          {renderRosterTable(weeklyHistory)}
+          {renderRosterTable(currentWeeklyHistory)}
         </div>
       )}
 

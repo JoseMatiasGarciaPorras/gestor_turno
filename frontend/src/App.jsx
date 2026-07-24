@@ -21,6 +21,113 @@ const getApiBaseUrl = () => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export function generateReportHtml(sheet) {
+  const items = sheet.items || [];
+  const plantaItems = items.filter(i => !i.is_montaje);
+  const montajeItems = items.filter(i => i.is_montaje);
+
+  const renderRow = (item) => {
+    const macName = (item.machine && item.machine.name) ? item.machine.name : (item.machine_name_manual || '-');
+    let partRef = (item.part && item.part.name) ? item.part.name : (item.part_reference_manual || '-');
+    if (item.is_csl1) {
+      partRef += ` <span style="background:#f43f5e;color:#fff;padding:1px 4px;border-radius:3px;font-size:10px;font-weight:bold;margin-left:4px;">CSL1</span>`;
+    }
+    const opNum = (item.operator && item.operator.operator_number) ? item.operator.operator_number : (item.operator_number_manual || '-');
+    const opName = (item.operator && item.operator.name) ? item.operator.name : (item.operator_name_manual || '-');
+    const side = item.machine_side || 'IZQ';
+    const qtyOk = item.quantity_ok || 0;
+    const qtyKo = item.quantity_ko > 0 ? item.quantity_ko : '';
+
+    return `
+    <tr>
+        <td style="font-weight: bold;">\${macName}</td>
+        <td style="text-align: center;">\${side}</td>
+        <td style="font-family: monospace; font-weight: bold;">\${partRef}</td>
+        <td style="text-align: center; font-weight: bold; color: #15803d;">\${qtyOk}</td>
+        <td style="text-align: center; color: #b91c1c;">\${qtyKo}</td>
+        <td style="text-align: center; font-weight: bold;">\${opNum}</td>
+        <td>\${opName}</td>
+    </tr>
+    `;
+  };
+
+  const plantaRowsHtml = plantaItems.map(renderRow).join('');
+  const montajeRowsHtml = montajeItems.map(renderRow).join('');
+
+  return `
+  <!DOCTYPE html>
+  <html lang="es">
+  <head>
+      <meta charset="UTF-8">
+      <title>PARTE DE PRODUCCIÓN DIARIO - \${sheet.production_date}</title>
+      <style>
+          body { font-family: Arial, sans-serif; background: #f8fafc; color: #0f172a; padding: 20px; margin: 0; }
+          .paper { max-width: 850px; margin: 0 auto; background: white; border: 2px solid #0f172a; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+          .header-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 15px; font-size: 14px; font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; }
+          th, td { border: 1px solid #334155; padding: 5px 8px; text-align: left; }
+          th { background: #e2e8f0; font-size: 11px; text-transform: uppercase; }
+          .section-title { background: #1e293b; color: white; padding: 4px 8px; font-size: 12px; font-weight: bold; text-transform: uppercase; margin-top: 10px; margin-bottom: 5px; }
+          .notes { border: 1px solid #334155; padding: 8px; font-size: 12px; background: #fffbebf8; margin-top: 10px; }
+          @media print { body { background: white; padding: 0; } .paper { box-shadow: none; border: 1px solid black; } }
+      </style>
+  </head>
+  <body>
+      <div class="paper">
+          <div class="header-grid">
+              <div>DIA / FECHA: <span style="font-weight: normal;">\${sheet.production_date}</span></div>
+              <div>TURNO: <span style="font-weight: normal;">\${sheet.shift_name}</span></div>
+              <div>ENCARGADO: <span style="font-weight: normal;">\${sheet.supervisor}</span></div>
+          </div>
+
+          <div class="section-title">PRODUCCIÓN MÁQUINAS EN PLANTA</div>
+          <table>
+              <thead>
+                  <tr>
+                      <th style="width: 20%;">MÁQUINA</th>
+                      <th style="width: 8%;">LADO</th>
+                      <th style="width: 25%;">REFERENCIA</th>
+                      <th style="width: 10%;">PROD OK</th>
+                      <th style="width: 10%;">PROD KO</th>
+                      <th style="width: 10%;">Nº OP</th>
+                      <th style="width: 17%;">OPERARIO</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  \${plantaRowsHtml ? plantaRowsHtml : '<tr><td colspan="7" style="text-align:center;">Sin filas de máquinas en planta</td></tr>'}
+              </tbody>
+          </table>
+
+          \${montajeRowsHtml ? \`
+          <div class="section-title">MONTAJE</div>
+          <table>
+              <thead>
+                  <tr>
+                      <th style="width: 20%;">MÁQUINA</th>
+                      <th style="width: 8%;">LADO</th>
+                      <th style="width: 25%;">REFERENCIA</th>
+                      <th style="width: 10%;">PROD OK</th>
+                      <th style="width: 10%;">PROD KO</th>
+                      <th style="width: 10%;">Nº OP</th>
+                      <th style="width: 17%;">OPERARIO</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  \${montajeRowsHtml}
+              </tbody>
+          </table>
+          \` : ''}
+
+          <div class="notes">
+              <strong>FALTA PERSONAL O NOTAS / INCIDENCIAS:</strong><br/>
+              \${sheet.incidents_notes ? sheet.incidents_notes : 'Ninguna.'}
+          </div>
+      </div>
+  </body>
+  </html>
+  `;
+}
+
 export default function App() {
   const [machines, setMachines] = useState([]);
   const [operators, setOperators] = useState([]);
@@ -83,6 +190,7 @@ export default function App() {
           if (resSnaps.ok) {
             const snapsData = await resSnaps.json();
             setWeeklySnapshots(snapsData);
+            localStorage.setItem('gestor_weekly_snapshots', JSON.stringify(snapsData));
           }
         } catch (e) {
           console.warn("Error cargando historial de cuadrante:", e);
@@ -98,6 +206,9 @@ export default function App() {
       const cachedOp = localStorage.getItem('gestor_operators');
       const cachedParts = localStorage.getItem('gestor_parts');
       const cachedSheets = localStorage.getItem('gestor_shift_sheets');
+      const cachedSnaps = localStorage.getItem('gestor_weekly_snapshots');
+
+      if (cachedSnaps) setWeeklySnapshots(JSON.parse(cachedSnaps));
 
       if (cachedMac) setMachines(JSON.parse(cachedMac));
       else {
@@ -181,7 +292,15 @@ export default function App() {
   };
 
   const handleOpenHtmlReport = (sheetId) => {
-    window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html`, '_blank');
+    const sheet = shiftSheets.find(s => String(s.id) === String(sheetId));
+    if (sheet) {
+      const htmlContent = generateReportHtml(sheet);
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+    } else {
+      window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html`, '_blank');
+    }
   };
 
   const handleDeleteSheet = async (id) => {
@@ -395,7 +514,9 @@ export default function App() {
 
       {activeTab === 'roster' && (
         <RosterView 
-          weeklyHistory={weeklyHistory}
+          shiftSheets={shiftSheets}
+          operators={operators}
+          machines={machines}
           weeklySnapshots={weeklySnapshots}
           onRefresh={fetchData}
         />

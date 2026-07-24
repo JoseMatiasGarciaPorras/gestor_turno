@@ -8,7 +8,25 @@ const loadSavedDraft = () => {
   try {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      // Migrate old montage format to references format if needed
+      if (parsed && Array.isArray(parsed.montajeEntries)) {
+        parsed.montajeEntries = parsed.montajeEntries.map(m => {
+          if (m && m.part_reference !== undefined && !m.references) {
+            return {
+              id: m.id,
+              part_name: m.part_name || 'Pieza General',
+              operator_name: m.operator_name,
+              operator_number: m.operator_number,
+              is_montaje: true,
+              is_csl1: !!m.is_csl1,
+              references: [{ id: Date.now(), code: m.part_reference, side_type: 'Única', quantity_ok: m.quantity_ok || 0, quantity_ko: m.quantity_ko || 0 }]
+            };
+          }
+          return m;
+        });
+      }
+      return parsed;
     }
   } catch (e) {
     console.error("Error cargando borrador:", e);
@@ -329,9 +347,27 @@ export default function ShiftProductionSheet({
   const addMontajeEntry = () => {
     const activeOps = operators.filter(o => o.is_active !== false);
     const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
+    
+    // Find the first assembly part if available
+    const montageParts = parts.filter(p => p.is_montaje);
+    const defaultPart = montageParts[0] || parts[0] || { name: 'Pieza Montaje', references_list: [{ code: 'REF-MONTAJE', side_type: 'Única' }] };
+    
+    const normRefs = getNormalizedReferences(defaultPart);
+    const initialSubRefs = normRefs.length > 0 
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
     setMontajeEntries([
       ...montajeEntries,
-      { id: Date.now(), part_reference: '', quantity_ok: 0, quantity_ko: 0, is_csl1: false, operator_name: defaultOp.name, operator_number: defaultOp.operator_number }
+      {
+        id: Date.now(),
+        part_name: defaultPart.name,
+        operator_name: defaultOp.name,
+        operator_number: defaultOp.operator_number,
+        is_montaje: true,
+        is_csl1: false,
+        references: initialSubRefs
+      }
     ]);
   };
 
@@ -339,15 +375,64 @@ export default function ShiftProductionSheet({
     setMontajeEntries(montajeEntries.filter(m => m.id !== id));
   };
 
-  const updateMontajeEntry = (id, field, value) => {
-    setMontajeEntries(montajeEntries.map(m => {
+  const updateMontajeField = (id, field, value) => {
+    setMontajeEntries(prev => prev.map(m => {
       if (m.id === id) {
         const updated = { ...m, [field]: value };
         if (field === 'operator_name') {
-          const matched = operators.find(o => o.name === value);
-          if (matched) updated.operator_number = matched.operator_number;
+          const matchedOp = operators.find(o => o.name === value);
+          updated.operator_number = matchedOp ? matchedOp.operator_number : '';
         }
         return updated;
+      }
+      return m;
+    }));
+  };
+
+  const selectPartForMontaje = (entryId, selectedPart) => {
+    const normRefs = getNormalizedReferences(selectedPart);
+    const newSubRefs = normRefs.length > 0 
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now(), code: 'REF-MANUAL', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+    setMontajeEntries(montajeEntries.map(m => {
+      if (m.id === entryId) {
+        return {
+          ...m,
+          part_name: selectedPart.name,
+          references: newSubRefs
+        };
+      }
+      return m;
+    }));
+    setActiveSearchRowId(null);
+  };
+
+  const updateMontajeSubRefQty = (entryId, subRefId, field, value) => {
+    setMontajeEntries(montajeEntries.map(m => {
+      if (m.id === entryId) {
+        return {
+          ...m,
+          references: m.references.map(r => {
+            if (r.id === subRefId) {
+              return { ...r, [field]: value };
+            }
+            return r;
+          })
+        };
+      }
+      return m;
+    }));
+  };
+
+  const removeMontajeSubReference = (entryId, subRefId) => {
+    setMontajeEntries(montajeEntries.map(m => {
+      if (m.id === entryId) {
+        if (m.references.length <= 1) return m;
+        return {
+          ...m,
+          references: m.references.filter(r => r.id !== subRefId)
+        };
       }
       return m;
     }));
@@ -365,8 +450,15 @@ export default function ShiftProductionSheet({
   });
 
   montajeEntries.forEach(m => {
-    totalOk += parseInt(m.quantity_ok || 0);
-    totalKo += parseInt(m.quantity_ko || 0);
+    if (Array.isArray(m.references)) {
+      m.references.forEach(r => {
+        totalOk += parseInt(r.quantity_ok || 0);
+        totalKo += parseInt(r.quantity_ko || 0);
+      });
+    } else {
+      totalOk += parseInt(m.quantity_ok || 0);
+      totalKo += parseInt(m.quantity_ko || 0);
+    }
   });
 
   // Modal para previsualizar y descargar la imagen generada
@@ -420,18 +512,71 @@ export default function ShiftProductionSheet({
     document.body.removeChild(link);
   };
 
+  const handleShareImage = async (imgObj) => {
+    if (!imgObj || !imgObj.blob) return;
+    try {
+      const file = new File([imgObj.blob], imgObj.filename, { type: 'image/png' });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Parte de Producción ${productionDate}`,
+          text: `Parte de producción - Turno ${shiftName} (Supervisor: ${supervisor})`
+        });
+      } else {
+        alert("Tu navegador o dispositivo no soporta compartir imágenes de forma directa. Por favor, descarga la imagen y compártela.");
+      }
+    } catch (err) {
+      console.warn("Error al compartir la imagen:", err);
+    }
+  };
+
+  const handleCopySummary = () => {
+    const summaryText = `📋 *PARTE DE PRODUCCIÓN DIARIO*
+📅 *Fecha:* ${productionDate}
+🕒 *Turno:* ${shiftName}
+👤 *Encargado:* ${supervisor}
+
+✅ *Total OK:* ${totalOk}
+❌ *Total KO (Scrap):* ${totalKo}
+
+📝 *Incidencias/Falta Personal:*
+${incidentsNotes || 'Ninguna.'}`;
+
+    navigator.clipboard.writeText(summaryText)
+      .then(() => {
+        alert("¡Resumen de WhatsApp copiado al portapapeles con éxito!");
+      })
+      .catch(err => {
+        console.error("Error al copiar texto: ", err);
+        alert("No se pudo copiar automáticamente. Por favor copia las notas manualmente.");
+      });
+  };
+
   const handleSave = () => {
     // Transformar a lista plana de ítems para enviar al servidor
     const flatItems = [];
 
     machineEntries.forEach(m => {
+      // Buscar IDs correspondientes
+      const machineObj = machines.find(mac => mac.name === m.machine_name);
+      const machineId = machineObj ? machineObj.id : null;
+
+      const operatorObj = operators.find(op => op.name === m.operator_name);
+      const operatorId = operatorObj ? operatorObj.id : null;
+
+      const partObj = parts.find(p => p.name === m.part_name);
+      const partId = partObj ? partObj.id : null;
+
       m.references.forEach(r => {
         flatItems.push({
+          machine_id: machineId,
           machine_name_manual: m.machine_name,
           machine_side: r.side_type,
+          part_id: partId,
           part_reference_manual: r.code,
           quantity_ok: parseInt(r.quantity_ok || 0),
           quantity_ko: parseInt(r.quantity_ko || 0),
+          operator_id: operatorId,
           operator_number_manual: m.operator_number,
           operator_name_manual: m.operator_name,
           is_montaje: false
@@ -440,17 +585,54 @@ export default function ShiftProductionSheet({
     });
 
     montajeEntries.forEach(m => {
-      flatItems.push({
-        machine_name_manual: 'MONTAJE',
-        machine_side: 'IZQ',
-        part_reference_manual: m.part_reference,
-        quantity_ok: parseInt(m.quantity_ok || 0),
-        quantity_ko: parseInt(m.quantity_ko || 0),
-        operator_number_manual: m.operator_number,
-        operator_name_manual: m.operator_name,
-        is_montaje: true,
-        is_csl1: !!m.is_csl1
-      });
+      const operatorObj = operators.find(op => op.name === m.operator_name);
+      const operatorId = operatorObj ? operatorObj.id : null;
+
+      const partObj = parts.find(p => p.name === m.part_name);
+      const partId = partObj ? partObj.id : null;
+
+      if (Array.isArray(m.references)) {
+        m.references.forEach(r => {
+          flatItems.push({
+            machine_name_manual: 'MONTAJE',
+            machine_side: r.side_type || 'IZQ',
+            part_id: partId,
+            part_reference_manual: r.code,
+            quantity_ok: parseInt(r.quantity_ok || 0),
+            quantity_ko: parseInt(r.quantity_ko || 0),
+            operator_id: operatorId,
+            operator_number_manual: m.operator_number,
+            operator_name_manual: m.operator_name,
+            is_montaje: true,
+            is_csl1: !!m.is_csl1
+          });
+        });
+      } else {
+        // Fallback for legacy format
+        let fallbackPartId = null;
+        const matchedPart = parts.find(p => 
+          p.is_montaje && 
+          p.references_list && 
+          p.references_list.some(ref => ref.code.toUpperCase() === m.part_reference.toUpperCase())
+        );
+        if (matchedPart) {
+          fallbackPartId = matchedPart.id;
+        }
+
+        flatItems.push({
+          machine_name_manual: 'MONTAJE',
+          machine_side: 'IZQ',
+          part_id: fallbackPartId,
+          part_reference_manual: m.part_reference,
+          quantity_ok: parseInt(m.quantity_ok || 0),
+          quantity_ko: parseInt(m.quantity_ko || 0),
+          operator_id: operatorId,
+          operator_number_manual: m.operator_number,
+          operator_name_manual: m.operator_name,
+          is_montaje: true,
+          is_csl1: !!m.is_csl1
+        });
+      }
     });
 
     const payload = {
@@ -490,6 +672,16 @@ export default function ShiftProductionSheet({
               title="Reiniciar conteos y borrador del turno"
             >
               <RotateCcw size={16} /> Reiniciar Turno
+            </button>
+
+            <button 
+              type="button"
+              className="btn btn-secondary" 
+              style={{ padding: '8px 14px', minHeight: '42px', fontSize: '0.85rem', background: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', border: '1px solid rgba(59, 130, 246, 0.3)' }} 
+              onClick={handleCopySummary}
+              title="Copiar resumen del turno para enviar por WhatsApp"
+            >
+              💬 Copiar WhatsApp
             </button>
 
             <button 
@@ -792,81 +984,221 @@ export default function ShiftProductionSheet({
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '30px' }}>
-        {montajeEntries.map((m) => (
-          <div key={m.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', background: 'var(--bg-card)', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '14px', borderRadius: 'var(--radius-lg)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <input 
-                type="text" 
-                className="form-input" 
-                style={{ fontFamily: 'monospace', fontWeight: 'bold' }}
-                placeholder="Referencia Montaje (ej. IS6170080-02)"
-                value={m.part_reference}
-                onChange={(e) => updateMontajeEntry(m.id, 'part_reference', e.target.value)}
-              />
-              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px', marginLeft: '8px' }} onClick={() => removeMontajeEntry(m.id)}>
-                <Trash2 size={15} />
-              </button>
-            </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '30px' }}>
+        {montajeEntries.map((m) => {
+          // Filter parts to only show parts that are marked as montage
+          const filteredMontajeParts = parts.filter(p => 
+            p.is_montaje &&
+            p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase())
+          );
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-              <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>PROD OK</label>
+          // Fallback if no parts are marked as montage, show all parts
+          const autocompleteList = filteredMontajeParts.length > 0 
+            ? filteredMontajeParts 
+            : parts.filter(p => p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()));
+
+          return (
+            <div key={m.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px', background: 'var(--bg-card)', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '16px', borderRadius: 'var(--radius-lg)' }}>
+              
+              {/* CABECERA: OPERARIO DE MONTAJE + BOTÓN DE BORRAR */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', alignItems: 'center' }}>
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MONTAJE</label>
+                  <select 
+                    className="form-select" 
+                    style={{ minHeight: '40px' }}
+                    value={m.operator_name}
+                    onChange={(e) => updateMontajeField(m.id, 'operator_name', e.target.value)}
+                  >
+                    {(() => {
+                      const activeOps = operators.filter(op => op.is_active !== false);
+                      const list = [...activeOps];
+                      if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
+                        const matched = operators.find(op => op.name === m.operator_name);
+                        if (matched) list.push(matched);
+                      }
+                      return list.map(op => (
+                        <option key={op.id} value={op.name}>
+                          Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                </div>
+
+                <button className="btn btn-danger" style={{ minHeight: '40px', padding: '0 10px', marginTop: '16px' }} onClick={() => removeMontajeEntry(m.id)}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+
+              {/* SELECTOR AUTOCOMPLETADO DE PIEZA */}
+              <div style={{ position: 'relative', borderTop: '1px border-color', paddingTop: '10px' }}>
+                <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 'bold', color: '#a78bfa' }}>PIEZA ASIGNADA A MONTAJE</span>
+                  <span style={{ fontStyle: 'italic', color: '#c084fc' }}>{m.part_name}</span>
+                </label>
+
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="text" 
+                    className="form-input"
+                    style={{ minHeight: '42px', fontWeight: 'bold', color: '#a78bfa', paddingRight: '32px' }}
+                    placeholder="Escribe el nombre de la pieza (ej. Espejo, Moldura)..."
+                    value={m.part_name}
+                    onFocus={() => setActiveSearchRowId(m.id)}
+                    onChange={(e) => {
+                      updateMontajeField(m.id, 'part_name', e.target.value);
+                      setActiveSearchRowId(m.id);
+                    }}
+                  />
+                  <Search size={16} color="#94a3b8" style={{ position: 'absolute', right: '10px', top: '13px' }} />
+                </div>
+
+                {/* DESPLEGABLE AUTOCOMPLETADO DE PIEZAS */}
+                {activeSearchRowId === m.id && (
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '100%', 
+                    left: 0, 
+                    right: 0, 
+                    zIndex: 90, 
+                    background: '#151d33', 
+                    border: '1px solid #a78bfa', 
+                    borderRadius: 'var(--radius-md)', 
+                    maxHeight: '200px', 
+                    overflowY: 'auto',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.5)',
+                    marginTop: '4px'
+                  }}>
+                    <div style={{ padding: '6px 10px', fontSize: '0.7rem', color: '#94a3b8', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Seleccionar Pieza Coincidente ({autocompleteList.length})</span>
+                      <button style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer' }} onClick={() => setActiveSearchRowId(null)}>Cerrar</button>
+                    </div>
+
+                    {autocompleteList.length > 0 ? (
+                      autocompleteList.map((p, pIdx) => {
+                        const normRefs = getNormalizedReferences(p);
+                        return (
+                          <div 
+                            key={pIdx}
+                            style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
+                            onMouseDown={() => selectPartForMontaje(m.id, p)}
+                          >
+                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{p.name}</div>
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                              {normRefs.map((r, rIdx) => (
+                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
+                                  {r.code} ({r.side_type})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
+                        Sin piezas de montaje encontradas
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* SUB-BLOQUES POR CADA REFERENCIA DE LA PIEZA */}
+              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Tag size={14} /> REFERENCIAS ({(m.references || []).length})
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {(m.references || []).map((r) => {
+                    const sideStyle = getSideColor(r.side_type);
+                    return (
+                      <div key={r.id} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                            <span style={{ 
+                              fontSize: '0.72rem', 
+                              fontWeight: 'bold', 
+                              padding: '2px 8px', 
+                              borderRadius: '10px',
+                              background: sideStyle.bg,
+                              color: sideStyle.text,
+                              border: `1px solid ${sideStyle.border}`
+                            }}>
+                              {r.side_type}
+                            </span>
+                            <input 
+                              type="text" 
+                              className="form-input" 
+                              style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', fontSize: '0.9rem' }}
+                              value={r.code}
+                              onChange={(e) => updateMontajeSubRefQty(m.id, r.id, 'code', e.target.value)}
+                              placeholder="Código Ref"
+                            />
+                          </div>
+
+                          {(m.references || []).length > 1 && (
+                            <button type="button" className="btn btn-danger" style={{ minHeight: '32px', padding: '0 8px' }} onClick={() => removeMontajeSubReference(m.id, r.id)}>
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* CONTADORES OK Y KO POR CADA REFERENCIA INDIVIDUAL */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <CheckCircle size={12} /> PROD OK
+                            </div>
+                            <input 
+                              type="number" 
+                              className="form-input" 
+                              style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#10b981', textAlign: 'center' }}
+                              value={r.quantity_ok}
+                              onChange={(e) => updateMontajeSubRefQty(m.id, r.id, 'quantity_ok', e.target.value)}
+                            />
+                          </div>
+
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <AlertOctagon size={12} /> SCRAP KO
+                            </div>
+                            <input 
+                              type="number" 
+                              className="form-input" 
+                              style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#f43f5e', textAlign: 'center' }}
+                              value={r.quantity_ko}
+                              onChange={(e) => updateMontajeSubRefQty(m.id, r.id, 'quantity_ko', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* OPCIÓN CSL1 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                 <input 
-                  type="number" 
-                  className="form-input" 
-                  style={{ color: '#10b981', fontWeight: 'bold' }}
-                  value={m.quantity_ok}
-                  onChange={(e) => updateMontajeEntry(m.id, 'quantity_ok', e.target.value)}
+                  type="checkbox" 
+                  id={`csl1-${m.id}`} 
+                  checked={!!m.is_csl1} 
+                  onChange={(e) => updateMontajeField(m.id, 'is_csl1', e.target.checked)} 
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                 />
+                <label htmlFor={`csl1-${m.id}`} style={{ fontSize: '0.78rem', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Selección especial CSL1
+                  {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold' }}>CSL1</span>}
+                </label>
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>SCRAP KO</label>
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  style={{ color: '#f43f5e', fontWeight: 'bold' }}
-                  value={m.quantity_ko || 0}
-                  onChange={(e) => updateMontajeEntry(m.id, 'quantity_ko', e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontSize: '0.72rem' }}>OPERARIO</label>
-                <select className="form-select" value={m.operator_name} onChange={(e) => updateMontajeEntry(m.id, 'operator_name', e.target.value)}>
-                  {(() => {
-                    const activeOps = operators.filter(op => op.is_active !== false);
-                    const list = [...activeOps];
-                    if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
-                      const matched = operators.find(op => op.name === m.operator_name);
-                      if (matched) list.push(matched);
-                    }
-                    return list.map(op => (
-                      <option key={op.id} value={op.name}>
-                        Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
-                      </option>
-                    ));
-                  })()}
-                </select>
-              </div>
             </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-              <input 
-                type="checkbox" 
-                id={`csl1-${m.id}`} 
-                checked={!!m.is_csl1} 
-                onChange={(e) => updateMontajeEntry(m.id, 'is_csl1', e.target.checked)} 
-                style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-              />
-              <label htmlFor={`csl1-${m.id}`} style={{ fontSize: '0.78rem', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                Selección especial CSL1
-                {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold' }}>CSL1</span>}
-              </label>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* PLANTILLA OCULTA PARA CAPTURA HTML2CANVAS */}
@@ -940,17 +1272,19 @@ export default function ShiftProductionSheet({
                 </tr>
               </thead>
               <tbody>
-                {montajeEntries.map((m, idx) => (
-                  <tr key={idx}>
-                    <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                      {m.part_reference}
-                      {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold', marginLeft: '5px' }}>CSL1</span>}
-                    </td>
-                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{m.quantity_ok}</td>
-                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#b91c1c' }}>{m.quantity_ko > 0 ? m.quantity_ko : ''}</td>
-                    <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{m.operator_number}</td>
-                    <td style={{ border: '1px solid #000', padding: '5px' }}>{m.operator_name}</td>
-                  </tr>
+                {montajeEntries.map(m => (
+                  (m.references || []).map((r, rIdx) => (
+                    <tr key={`${m.id}-${r.id}`}>
+                      <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                        {r.code}
+                        {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold', marginLeft: '5px' }}>CSL1</span>}
+                      </td>
+                      <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{r.quantity_ok}</td>
+                      <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{r.quantity_ko > 0 ? r.quantity_ko : ''}</td>
+                      <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{m.operator_number}</td>
+                      <td style={{ border: '1px solid #000', padding: '5px' }}>{m.operator_name}</td>
+                    </tr>
+                  ))
                 ))}
               </tbody>
             </table>
@@ -989,6 +1323,11 @@ export default function ShiftProductionSheet({
               <button className="btn btn-success" onClick={() => handleDownloadImage(previewImage)}>
                 📥 Descargar Imagen PNG
               </button>
+              {navigator.share && (
+                <button className="btn btn-primary" style={{ background: '#10b981', borderColor: '#10b981', color: 'white' }} onClick={() => handleShareImage(previewImage)}>
+                  🔗 Compartir Imagen (WhatsApp)
+                </button>
+              )}
               <button className="btn btn-primary" onClick={() => setPreviewImage(null)}>
                 Cerrar
               </button>

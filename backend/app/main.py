@@ -406,16 +406,44 @@ def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db))
     db.refresh(sheet)
 
     for item in payload.items:
+        # Resoluciones automáticas si faltan IDs
+        machine_id = item.machine_id
+        if not machine_id and item.machine_name_manual:
+            db_mac = db.query(Machine).filter(Machine.name == item.machine_name_manual).first()
+            if db_mac:
+                machine_id = db_mac.id
+                
+        operator_id = item.operator_id
+        if not operator_id:
+            db_op = None
+            if item.operator_number_manual:
+                db_op = db.query(Operator).filter(Operator.operator_number == item.operator_number_manual).first()
+            if not db_op and item.operator_name_manual:
+                db_op = db.query(Operator).filter(Operator.name == item.operator_name_manual).first()
+            if db_op:
+                operator_id = db_op.id
+
+        part_id = item.part_id
+        if not part_id and item.part_reference_manual:
+            # Buscar pieza por nombre exacto o buscando en sus referencias
+            db_part = db.query(Part).filter(Part.name == item.part_reference_manual).first()
+            if not db_part:
+                ref = db.query(PartReference).filter(PartReference.code == item.part_reference_manual).first()
+                if ref:
+                    db_part = ref.part
+            if db_part:
+                part_id = db_part.id
+
         db_item = ProductionItem(
             shift_sheet_id=sheet.id,
-            machine_id=item.machine_id,
+            machine_id=machine_id,
             machine_name_manual=item.machine_name_manual,
             machine_side=item.machine_side,
-            part_id=item.part_id,
+            part_id=part_id,
             part_reference_manual=item.part_reference_manual,
             quantity_ok=item.quantity_ok,
             quantity_ko=item.quantity_ko,
-            operator_id=item.operator_id,
+            operator_id=operator_id,
             operator_name_manual=item.operator_name_manual,
             operator_number_manual=item.operator_number_manual,
             is_montaje=item.is_montaje,
