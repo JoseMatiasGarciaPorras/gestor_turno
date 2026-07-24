@@ -161,12 +161,19 @@ export default function App() {
         setMachines(macsData);
         setOperators(opsData);
         setParts(partsData);
+        localStorage.setItem('gestor_machines', JSON.stringify(macsData));
+        localStorage.setItem('gestor_operators', JSON.stringify(opsData));
+        localStorage.setItem('gestor_parts', JSON.stringify(partsData));
 
         // Fusionar hojas de la API con historial en localStorage para evitar pérdidas ante reinicios del backend
         const cachedSheetsRaw = localStorage.getItem('gestor_shift_sheets');
         const cachedSheets = cachedSheetsRaw ? JSON.parse(cachedSheetsRaw) : [];
+        
+        // Mantener solo partes locales offline (ID tipo Date.now())
+        const offlineSheets = cachedSheets.filter(s => s && s.id && Number(s.id) > 1000000000000);
+        
         const mergedMap = new Map();
-        [...sheetsData, ...cachedSheets].forEach(s => {
+        [...sheetsData, ...offlineSheets].forEach(s => {
           if (s && s.id) mergedMap.set(String(s.id), s);
         });
         const mergedSheets = Array.from(mergedMap.values()).sort((a, b) => b.id - a.id);
@@ -487,9 +494,24 @@ export default function App() {
         <h1 className="brand-title">
           <Cpu color="#60a5fa" size={24} /> Gestor de Turnos & Planta
         </h1>
-        <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}>
-          <RefreshCw size={14} className={loading ? 'spin' : ''} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {error && (
+            <span style={{ 
+              fontSize: '0.72rem', 
+              color: '#f87171', 
+              background: 'rgba(239, 68, 68, 0.15)', 
+              padding: '4px 10px', 
+              borderRadius: '12px', 
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              fontWeight: 'bold' 
+            }}>
+              ⚠️ Modo Offline
+            </span>
+          )}
+          <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}>
+            <RefreshCw size={14} className={loading ? 'spin' : ''} />
+          </button>
+        </div>
       </header>
 
       {/* Main Active Tab View */}
