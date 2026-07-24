@@ -89,6 +89,9 @@ export default function ShiftProductionSheet({
   // Active autocomplete row ID
   const [activeSearchRowId, setActiveSearchRowId] = useState(null);
 
+  // Active modal editor row ID
+  const [editingEntry, setEditingEntry] = useState(null); // { type: 'machine' | 'montaje', id: number }
+
   // Machine entries (restored from draft or clean default)
   const [machineEntries, setMachineEntries] = useState(
     initialDraft?.machineEntries || []
@@ -224,8 +227,9 @@ export default function ShiftProductionSheet({
       ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
       : [{ id: Date.now(), code: '90100108', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
 
+    const newId = Date.now();
     const newEntry = {
-      id: Date.now(),
+      id: newId,
       machine_name: defaultMac,
       part_name: defaultPart.name,
       operator_name: defaultOpName,
@@ -235,6 +239,7 @@ export default function ShiftProductionSheet({
     };
 
     setMachineEntries([...machineEntries, newEntry]);
+    setEditingEntry({ type: 'machine', id: newId });
   };
 
   const removeMachineEntry = (id) => {
@@ -357,10 +362,11 @@ export default function ShiftProductionSheet({
       ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
       : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
 
+    const newId = Date.now();
     setMontajeEntries([
       ...montajeEntries,
       {
-        id: Date.now(),
+        id: newId,
         part_name: defaultPart.name,
         operator_name: defaultOp.name,
         operator_number: defaultOp.operator_number,
@@ -369,6 +375,7 @@ export default function ShiftProductionSheet({
         references: initialSubRefs
       }
     ]);
+    setEditingEntry({ type: 'montaje', id: newId });
   };
 
   const removeMontajeEntry = (id) => {
@@ -654,6 +661,350 @@ ${incidentsNotes || 'Ninguna.'}`;
     }
   };
 
+  // Modal de edición enfocado para cada tarjeta
+  const renderEntryEditorModal = () => {
+    if (!editingEntry) return null;
+    const isMachine = editingEntry.type === 'machine';
+    const m = isMachine 
+      ? machineEntries.find(e => e.id === editingEntry.id)
+      : montajeEntries.find(e => e.id === editingEntry.id);
+      
+    if (!m) return null;
+
+    return (
+      <div className="modal-overlay" onClick={() => setEditingEntry(null)} style={{ zIndex: 1000 }}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px', width: '95%', overflowY: 'auto', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+          
+          {/* Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', fontWeight: 'bold', color: isMachine ? '#60a5fa' : '#a78bfa', margin: 0 }}>
+              {isMachine ? <Cpu size={20} /> : <Package size={20} />}
+              {isMachine 
+                ? `Editar Asignación - ${m.machine_name || 'Máquina'}`
+                : `Editar Asignación - Montaje: ${m.part_name || 'Pieza'}`
+              }
+            </h3>
+            <button style={{ background: 'none', border: 'none', color: '#f43f5e', fontSize: '1.2rem', cursor: 'pointer', padding: 0 }} onClick={() => setEditingEntry(null)}>✕</button>
+          </div>
+
+          {/* Form Content */}
+          <div style={{ flex: 1, overflowY: 'auto', paddingRight: '4px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            
+            {/* 1. Selectores e Inputs principales */}
+            {isMachine ? (
+              /* MÁQUINA + OPERARIO */
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <label className="form-label" style={{ fontSize: '0.7rem', margin: 0 }}>MÁQUINA</label>
+                    {machines.find(mac => mac.name === m.machine_name)?.is_small && (
+                      <span style={{ fontSize: '0.62rem', fontWeight: 'bold', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', padding: '1px 4px', borderRadius: '3px', border: '1px solid rgba(56, 189, 248, 0.3)', lineHeight: 1 }}>
+                        PEQUEÑA
+                      </span>
+                    )}
+                  </div>
+                  <select 
+                    className="form-select" 
+                    style={{ minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
+                    value={m.machine_name} 
+                    onChange={(e) => updateMachineField(m.id, 'machine_name', e.target.value)}
+                  >
+                    {machines.length > 0 ? machines.map(mac => (
+                      <option key={mac.id} value={mac.name}>
+                        {mac.name}{mac.is_small ? ' (Pequeña)' : ''}
+                      </option>
+                    )) : (
+                      <option value={m.machine_name}>{m.machine_name}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MÁQUINA</label>
+                  <select 
+                    className="form-select" 
+                    style={{ minHeight: '40px' }}
+                    value={m.operator_name}
+                    onChange={(e) => updateMachineField(m.id, 'operator_name', e.target.value)}
+                  >
+                    {(() => {
+                      const activeOps = operators.filter(op => op.is_active !== false);
+                      const list = [...activeOps];
+                      if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
+                        const matched = operators.find(op => op.name === m.operator_name);
+                        if (matched) list.push(matched);
+                      }
+                      return list.map(op => (
+                        <option key={op.id} value={op.name}>
+                          Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
+                        </option>
+                      ));
+                    })()}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              /* OPERARIO DE MONTAJE */
+              <div>
+                <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MONTAJE</label>
+                <select 
+                  className="form-select" 
+                  style={{ minHeight: '40px' }}
+                  value={m.operator_name}
+                  onChange={(e) => updateMontajeField(m.id, 'operator_name', e.target.value)}
+                >
+                  {(() => {
+                    const activeOps = operators.filter(op => op.is_active !== false);
+                    const list = [...activeOps];
+                    if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
+                      const matched = operators.find(op => op.name === m.operator_name);
+                      if (matched) list.push(matched);
+                    }
+                    return list.map(op => (
+                      <option key={op.id} value={op.name}>
+                        Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
+                      </option>
+                    ));
+                  })()}
+                </select>
+              </div>
+            )}
+
+            {/* 2. Selector Autocompletado de Pieza */}
+            <div style={{ position: 'relative', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+              <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 'bold', color: isMachine ? '#60a5fa' : '#a78bfa' }}>PIEZA ASIGNADA</span>
+                <span style={{ fontStyle: 'italic', color: isMachine ? '#93c5fd' : '#c084fc' }}>{m.part_name}</span>
+              </label>
+
+              <div style={{ position: 'relative' }}>
+                <input 
+                  type="text" 
+                  className="form-input"
+                  style={{ minHeight: '42px', fontWeight: 'bold', color: isMachine ? '#60a5fa' : '#a78bfa', paddingRight: '32px' }}
+                  placeholder="Escribe el nombre de la pieza (ej. Espejo, Moldura)..."
+                  value={m.part_name}
+                  onFocus={() => setActiveSearchRowId(m.id)}
+                  onChange={(e) => {
+                    if (isMachine) {
+                      updateMachineField(m.id, 'part_name', e.target.value);
+                    } else {
+                      updateMontajeField(m.id, 'part_name', e.target.value);
+                    }
+                    setActiveSearchRowId(m.id);
+                  }}
+                />
+                <Search size={16} color="#94a3b8" style={{ position: 'absolute', right: '10px', top: '13px' }} />
+              </div>
+
+              {/* Autocomplete Dropdown */}
+              {activeSearchRowId === m.id && (() => {
+                const filteredParts = isMachine 
+                  ? parts.filter(p => !p.is_montaje && p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()))
+                  : parts.filter(p => p.is_montaje && p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()));
+
+                const listToRender = filteredParts.length > 0
+                  ? filteredParts
+                  : (isMachine ? parts.filter(p => !p.is_montaje) : parts.filter(p => p.is_montaje));
+
+                return (
+                  <div style={{ 
+                    position: 'absolute', 
+                    top: '100%', 
+                    left: 0, 
+                    right: 0, 
+                    zIndex: 99, 
+                    background: '#151d33', 
+                    border: `1px solid ${isMachine ? '#3b82f6' : '#a78bfa'}`, 
+                    borderRadius: 'var(--radius-md)', 
+                    maxHeight: '180px', 
+                    overflowY: 'auto',
+                    boxShadow: '0 8px 25px rgba(0,0,0,0.5)',
+                    marginTop: '4px'
+                  }}>
+                    <div style={{ padding: '6px 10px', fontSize: '0.7rem', color: '#94a3b8', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Seleccionar Pieza Coincidente ({listToRender.length})</span>
+                      <button style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer' }} onClick={() => setActiveSearchRowId(null)}>Cerrar</button>
+                    </div>
+
+                    {listToRender.length > 0 ? (
+                      listToRender.slice(0, 10).map((p, pIdx) => {
+                        const normRefs = getNormalizedReferences(p);
+                        return (
+                          <div 
+                            key={pIdx}
+                            style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
+                            onMouseDown={() => {
+                              if (isMachine) {
+                                selectPartForMachine(m.id, p);
+                              } else {
+                                selectPartForMontaje(m.id, p);
+                              }
+                            }}
+                          >
+                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{p.name}</div>
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                              {normRefs.map((r, rIdx) => (
+                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
+                                  {r.code} ({r.side_type})
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
+                        Sin piezas encontradas
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* 3. Sub-bloques de Referencias */}
+            <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Tag size={14} /> REFERENCIAS DE LA PIEZA ({(m.references || []).length})
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {(m.references || []).map((r) => {
+                  const sideStyle = getSideColor(r.side_type);
+                  return (
+                    <div key={r.id} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
+                          <span style={{ 
+                            fontSize: '0.72rem', 
+                            fontWeight: 'bold', 
+                            padding: '2px 8px', 
+                            borderRadius: '10px',
+                            background: sideStyle.bg,
+                            color: sideStyle.text,
+                            border: `1px solid ${sideStyle.border}`
+                          }}>
+                            {r.side_type}
+                          </span>
+                          <input 
+                            type="text" 
+                            className="form-input" 
+                            style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', fontSize: '0.9rem' }}
+                            value={r.code}
+                            onChange={(e) => {
+                              if (isMachine) {
+                                updateSubRefQty(m.id, r.id, 'code', e.target.value);
+                              } else {
+                                updateMontajeSubRefQty(m.id, r.id, 'code', e.target.value);
+                              }
+                            }}
+                            placeholder="Código Ref"
+                          />
+                        </div>
+
+                        {(m.references || []).length > 1 && (
+                          <button type="button" className="btn btn-danger" style={{ minHeight: '32px', padding: '0 8px' }} onClick={() => {
+                            if (isMachine) {
+                              removeSubReference(m.id, r.id);
+                            } else {
+                              removeMontajeSubReference(m.id, r.id);
+                            }
+                          }}>
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* OK / KO Contadores */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <CheckCircle size={12} /> PROD OK
+                          </div>
+                          <input 
+                            type="number" 
+                            className="form-input" 
+                            style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#10b981', textAlign: 'center' }}
+                            value={r.quantity_ok}
+                            onChange={(e) => {
+                              if (isMachine) {
+                                updateSubRefQty(m.id, r.id, 'quantity_ok', e.target.value);
+                              } else {
+                                updateMontajeSubRefQty(m.id, r.id, 'quantity_ok', e.target.value);
+                              }
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertOctagon size={12} /> SCRAP KO
+                          </div>
+                          <input 
+                            type="number" 
+                            className="form-input" 
+                            style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#f43f5e', textAlign: 'center' }}
+                            value={r.quantity_ko}
+                            onChange={(e) => {
+                              if (isMachine) {
+                                updateSubRefQty(m.id, r.id, 'quantity_ko', e.target.value);
+                              } else {
+                                updateMontajeSubRefQty(m.id, r.id, 'quantity_ko', e.target.value);
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 4. CSL1 (Solo para montaje) */}
+            {!isMachine && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                <input 
+                  type="checkbox" 
+                  id={`modal-csl1-${m.id}`} 
+                  checked={!!m.is_csl1} 
+                  onChange={(e) => updateMontajeField(m.id, 'is_csl1', e.target.checked)} 
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <label htmlFor={`modal-csl1-${m.id}`} style={{ fontSize: '0.78rem', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  Selección especial CSL1
+                  {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold' }}>CSL1</span>}
+                </label>
+              </div>
+            )}
+
+          </div>
+
+          {/* Footer Actions */}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '14px', marginTop: '20px' }}>
+            <button className="btn btn-danger" style={{ minHeight: '38px', padding: '0 14px', fontSize: '0.85rem' }} onClick={() => {
+              if (isMachine) {
+                removeMachineEntry(m.id);
+              } else {
+                removeMontajeEntry(m.id);
+              }
+              setEditingEntry(null);
+            }}>
+              <Trash2 size={14} /> Eliminar
+            </button>
+            <button className="btn btn-primary" style={{ minHeight: '38px', padding: '0 20px', fontSize: '0.85rem' }} onClick={() => setEditingEntry(null)}>
+              Listo
+            </button>
+          </div>
+
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ marginTop: '10px' }}>
       {/* HEADER CONTROLS */}
@@ -749,226 +1100,67 @@ ${incidentsNotes || 'Ninguna.'}`;
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px', marginBottom: '24px' }}>
         {machineEntries.map((m) => {
-          const filteredParts = parts.filter(p => 
-            !p.is_montaje &&
-            p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase())
-          );
+          let mOk = 0;
+          let mKo = 0;
+          if (Array.isArray(m.references)) {
+            m.references.forEach(r => {
+              mOk += parseInt(r.quantity_ok || 0);
+              mKo += parseInt(r.quantity_ko || 0);
+            });
+          }
 
           return (
-            <div key={m.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', padding: '16px', borderRadius: 'var(--radius-lg)' }}>
-              
-              {/* CABECERA DE LA MÁQUINA: SELECTOR DE MÁQUINA + OPERARIO + BOTÓN DE BORRAR */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '8px', alignItems: 'center' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                    <label className="form-label" style={{ fontSize: '0.7rem', margin: 0 }}>MÁQUINA</label>
-                    {machines.find(mac => mac.name === m.machine_name)?.is_small && (
-                      <span style={{ fontSize: '0.62rem', fontWeight: 'bold', background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', padding: '1px 4px', borderRadius: '3px', border: '1px solid rgba(56, 189, 248, 0.3)', lineHeight: 1 }}>
-                        PEQUEÑA
-                      </span>
-                    )}
-                  </div>
-                  <select 
-                    className="form-select" 
-                    style={{ minHeight: '40px', fontWeight: 'bold', fontSize: '0.95rem', background: 'rgba(59, 130, 246, 0.15)', color: '#93c5fd' }}
-                    value={m.machine_name} 
-                    onChange={(e) => updateMachineField(m.id, 'machine_name', e.target.value)}
-                  >
-                    {machines.length > 0 ? machines.map(mac => (
-                      <option key={mac.id} value={mac.name}>
-                        {mac.name}{mac.is_small ? ' (Pequeña)' : ''}
-                      </option>
-                    )) : (
-                      <option value={m.machine_name}>{m.machine_name}</option>
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MÁQUINA</label>
-                  <select 
-                    className="form-select" 
-                    style={{ minHeight: '40px' }}
-                    value={m.operator_name}
-                    onChange={(e) => updateMachineField(m.id, 'operator_name', e.target.value)}
-                  >
-                    {(() => {
-                      const activeOps = operators.filter(op => op.is_active !== false);
-                      const list = [...activeOps];
-                      if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
-                        const matched = operators.find(op => op.name === m.operator_name);
-                        if (matched) list.push(matched);
-                      }
-                      return list.map(op => (
-                        <option key={op.id} value={op.name}>
-                          Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
-                        </option>
-                      ));
-                    })()}
-                  </select>
-                </div>
-
-                <button className="btn btn-danger" style={{ minHeight: '40px', padding: '0 10px', marginTop: '16px' }} onClick={() => removeMachineEntry(m.id)}>
-                  <Trash2 size={15} />
-                </button>
+            <div 
+              key={m.id} 
+              className="history-card" 
+              onClick={() => setEditingEntry({ type: 'machine', id: m.id })}
+              style={{ 
+                flexDirection: 'column', 
+                alignItems: 'stretch', 
+                padding: '12px 14px', 
+                borderRadius: 'var(--radius-lg)', 
+                background: 'var(--bg-card)', 
+                border: '1px solid rgba(96, 165, 250, 0.3)', 
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(96, 165, 250, 0.7)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(96, 165, 250, 0.3)';
+                e.currentTarget.style.transform = 'none';
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 'bold', color: '#60a5fa', fontSize: '1.02rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Cpu size={16} /> {m.machine_name || 'S/N'}
+                </span>
+                <span style={{ fontSize: '0.72rem', background: 'rgba(96, 165, 250, 0.15)', color: '#60a5fa', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                  Máquina
+                </span>
               </div>
 
-              {/* SELECTOR AUTOCOMPLETADO DE PIEZA ASIGNADA */}
-              <div style={{ position: 'relative', borderTop: '1px border-color', paddingTop: '10px' }}>
-                <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 'bold', color: '#60a5fa' }}>PIEZA ASIGNADA A LA MÁQUINA</span>
-                  <span style={{ fontStyle: 'italic', color: '#93c5fd' }}>{m.part_name}</span>
-                </label>
-
-                <div style={{ position: 'relative' }}>
-                  <input 
-                    type="text" 
-                    className="form-input"
-                    style={{ minHeight: '42px', fontWeight: 'bold', color: '#60a5fa', paddingRight: '32px' }}
-                    placeholder="Escribe el nombre de la pieza (ej. Espejo, Moldura)..."
-                    value={m.part_name}
-                    onFocus={() => setActiveSearchRowId(m.id)}
-                    onChange={(e) => {
-                      updateMachineField(m.id, 'part_name', e.target.value);
-                      setActiveSearchRowId(m.id);
-                    }}
-                  />
-                  <Search size={16} color="#94a3b8" style={{ position: 'absolute', right: '10px', top: '13px' }} />
-                </div>
-
-                {/* DESPLEGABLE AUTOCOMPLETADO DE PIEZAS */}
-                {activeSearchRowId === m.id && (
-                  <div style={{ 
-                    position: 'absolute', 
-                    top: '100%', 
-                    left: 0, 
-                    right: 0, 
-                    zIndex: 90, 
-                    background: '#151d33', 
-                    border: '1px solid #3b82f6', 
-                    borderRadius: 'var(--radius-md)', 
-                    maxHeight: '200px', 
-                    overflowY: 'auto',
-                    boxShadow: '0 8px 25px rgba(0,0,0,0.5)',
-                    marginTop: '4px'
-                  }}>
-                    <div style={{ padding: '6px 10px', fontSize: '0.7rem', color: '#94a3b8', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>Seleccionar Pieza Coincidente ({filteredParts.length})</span>
-                      <button style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer' }} onClick={() => setActiveSearchRowId(null)}>Cerrar</button>
-                    </div>
-
-                    {filteredParts.length > 0 ? (
-                      filteredParts.map((p, pIdx) => {
-                        const normRefs = getNormalizedReferences(p);
-                        return (
-                          <div 
-                            key={pIdx}
-                            style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
-                            onMouseDown={() => selectPartForMachine(m.id, p)}
-                          >
-                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{p.name}</div>
-                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
-                              {normRefs.map((r, rIdx) => (
-                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
-                                  {r.code} ({r.side_type})
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
-                        Sin piezas encontradas
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '6px', fontWeight: '500' }}>
+                👤 {m.operator_name || 'Sin Operario'}
               </div>
 
-              {/* SUB-BLOQUES POR CADA REFERENCIA DE LA PIEZA (IZQ, DCH, A/B, Única) */}
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Tag size={14} /> REFERENCIAS DE LA PIEZA ({m.references.length})
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {m.references.map((r) => {
-                    const sideStyle = getSideColor(r.side_type);
-                    return (
-                      <div key={r.id} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                            <span style={{ 
-                              fontSize: '0.72rem', 
-                              fontWeight: 'bold', 
-                              padding: '2px 8px', 
-                              borderRadius: '10px',
-                              background: sideStyle.bg,
-                              color: sideStyle.text,
-                              border: `1px solid ${sideStyle.border}`
-                            }}>
-                              LADO: {r.side_type}
-                            </span>
-                            <input 
-                              type="text" 
-                              className="form-input" 
-                              style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', fontSize: '0.9rem' }}
-                              value={r.code}
-                              onChange={(e) => updateSubRefQty(m.id, r.id, 'code', e.target.value)}
-                              placeholder="Código Ref (ej. L381154)"
-                            />
-                          </div>
-
-                          {m.references.length > 1 && (
-                            <button type="button" className="btn btn-danger" style={{ minHeight: '32px', padding: '0 8px' }} onClick={() => removeSubReference(m.id, r.id)}>
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* CONTADORES OK Y KO POR CADA REFERENCIA INDIVIDUAL */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                          <div>
-                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <CheckCircle size={12} /> PROD OK ({r.side_type})
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <input 
-                                type="number" 
-                                className="form-input" 
-                                style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#10b981', textAlign: 'center' }}
-                                value={r.quantity_ok}
-                                onChange={(e) => updateSubRefQty(m.id, r.id, 'quantity_ok', e.target.value)}
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <div style={{ fontSize: '0.7rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <AlertOctagon size={12} /> SCRAP KO ({r.side_type})
-                            </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <input 
-                                type="number" 
-                                className="form-input" 
-                                style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#f43f5e', textAlign: 'center' }}
-                                value={r.quantity_ko}
-                                onChange={(e) => updateSubRefQty(m.id, r.id, 'quantity_ko', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.part_name}>
+                ⚙️ {m.part_name || 'Sin pieza'}
               </div>
 
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px', borderTop: '1px solid var(--border-color)', paddingTop: '8px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                <span style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  OK: {mOk}
+                </span>
+                <span style={{ color: '#f43f5e', background: 'rgba(244, 63, 94, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  KO: {mKo}
+                </span>
+              </div>
             </div>
           );
         })}
@@ -984,218 +1176,72 @@ ${incidentsNotes || 'Ninguna.'}`;
         </button>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '30px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px', marginBottom: '30px' }}>
         {montajeEntries.map((m) => {
-          // Filter parts to only show parts that are marked as montage
-          const filteredMontajeParts = parts.filter(p => 
-            p.is_montaje &&
-            p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase())
-          );
-
-          // Fallback if no parts are marked as montage, show all parts
-          const autocompleteList = filteredMontajeParts.length > 0 
-            ? filteredMontajeParts 
-            : parts.filter(p => p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()));
+          let mOk = 0;
+          let mKo = 0;
+          if (m.references) {
+            m.references.forEach(r => {
+              mOk += parseInt(r.quantity_ok || 0);
+              mKo += parseInt(r.quantity_ko || 0);
+            });
+          }
 
           return (
-            <div key={m.id} className="history-card" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px', background: 'var(--bg-card)', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '16px', borderRadius: 'var(--radius-lg)' }}>
-              
-              {/* CABECERA: OPERARIO DE MONTAJE + BOTÓN DE BORRAR */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '8px', alignItems: 'center' }}>
-                <div>
-                  <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MONTAJE</label>
-                  <select 
-                    className="form-select" 
-                    style={{ minHeight: '40px' }}
-                    value={m.operator_name}
-                    onChange={(e) => updateMontajeField(m.id, 'operator_name', e.target.value)}
-                  >
-                    {(() => {
-                      const activeOps = operators.filter(op => op.is_active !== false);
-                      const list = [...activeOps];
-                      if (m.operator_name && !list.some(op => op.name === m.operator_name)) {
-                        const matched = operators.find(op => op.name === m.operator_name);
-                        if (matched) list.push(matched);
-                      }
-                      return list.map(op => (
-                        <option key={op.id} value={op.name}>
-                          Nº {op.operator_number} - {op.name}{!op.is_active ? ' (Inactivo)' : ''}
-                        </option>
-                      ));
-                    })()}
-                  </select>
-                </div>
-
-                <button className="btn btn-danger" style={{ minHeight: '40px', padding: '0 10px', marginTop: '16px' }} onClick={() => removeMontajeEntry(m.id)}>
-                  <Trash2 size={15} />
-                </button>
+            <div 
+              key={m.id} 
+              className="history-card" 
+              onClick={() => setEditingEntry({ type: 'montaje', id: m.id })}
+              style={{ 
+                flexDirection: 'column', 
+                alignItems: 'stretch', 
+                padding: '12px 14px', 
+                borderRadius: 'var(--radius-lg)', 
+                background: 'var(--bg-card)', 
+                border: '1px solid rgba(168, 85, 247, 0.3)', 
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.7)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.3)';
+                e.currentTarget.style.transform = 'none';
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 'bold', color: '#c084fc', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.part_name}>
+                  <Package size={16} /> {m.part_name || 'Pieza Montaje'}
+                </span>
+                <span style={{ fontSize: '0.72rem', background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                  Montaje
+                </span>
               </div>
 
-              {/* SELECTOR AUTOCOMPLETADO DE PIEZA */}
-              <div style={{ position: 'relative', borderTop: '1px border-color', paddingTop: '10px' }}>
-                <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontWeight: 'bold', color: '#a78bfa' }}>PIEZA ASIGNADA A MONTAJE</span>
-                  <span style={{ fontStyle: 'italic', color: '#c084fc' }}>{m.part_name}</span>
-                </label>
+              <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '6px', fontWeight: '500' }}>
+                👤 {m.operator_name || 'Sin Operario'}
+              </div>
 
-                <div style={{ position: 'relative' }}>
-                  <input 
-                    type="text" 
-                    className="form-input"
-                    style={{ minHeight: '42px', fontWeight: 'bold', color: '#a78bfa', paddingRight: '32px' }}
-                    placeholder="Escribe el nombre de la pieza (ej. Espejo, Moldura)..."
-                    value={m.part_name}
-                    onFocus={() => setActiveSearchRowId(m.id)}
-                    onChange={(e) => {
-                      updateMontajeField(m.id, 'part_name', e.target.value);
-                      setActiveSearchRowId(m.id);
-                    }}
-                  />
-                  <Search size={16} color="#94a3b8" style={{ position: 'absolute', right: '10px', top: '13px' }} />
-                </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                🏷️ {m.references && m.references.length > 0 ? `${m.references.length} ref(s)` : '0 refs'}
+              </div>
 
-                {/* DESPLEGABLE AUTOCOMPLETADO DE PIEZAS */}
-                {activeSearchRowId === m.id && (
-                  <div style={{ 
-                    position: 'absolute', 
-                    top: '100%', 
-                    left: 0, 
-                    right: 0, 
-                    zIndex: 90, 
-                    background: '#151d33', 
-                    border: '1px solid #a78bfa', 
-                    borderRadius: 'var(--radius-md)', 
-                    maxHeight: '200px', 
-                    overflowY: 'auto',
-                    boxShadow: '0 8px 25px rgba(0,0,0,0.5)',
-                    marginTop: '4px'
-                  }}>
-                    <div style={{ padding: '6px 10px', fontSize: '0.7rem', color: '#94a3b8', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span>Seleccionar Pieza Coincidente ({autocompleteList.length})</span>
-                      <button style={{ background: 'none', border: 'none', color: '#f43f5e', cursor: 'pointer' }} onClick={() => setActiveSearchRowId(null)}>Cerrar</button>
-                    </div>
-
-                    {autocompleteList.length > 0 ? (
-                      autocompleteList.map((p, pIdx) => {
-                        const normRefs = getNormalizedReferences(p);
-                        return (
-                          <div 
-                            key={pIdx}
-                            style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
-                            onMouseDown={() => selectPartForMontaje(m.id, p)}
-                          >
-                            <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{p.name}</div>
-                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
-                              {normRefs.map((r, rIdx) => (
-                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
-                                  {r.code} ({r.side_type})
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div style={{ padding: '12px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center' }}>
-                        Sin piezas de montaje encontradas
-                      </div>
-                    )}
-                  </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px', borderTop: '1px solid var(--border-color)', paddingTop: '8px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                <span style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  OK: {mOk}
+                </span>
+                <span style={{ color: '#f43f5e', background: 'rgba(244, 63, 94, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  KO: {mKo}
+                </span>
+                {m.is_csl1 && (
+                  <span style={{ marginLeft: 'auto', background: '#f43f5e', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: 'bold' }}>
+                    CSL1
+                  </span>
                 )}
               </div>
-
-              {/* SUB-BLOQUES POR CADA REFERENCIA DE LA PIEZA */}
-              <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Tag size={14} /> REFERENCIAS ({(m.references || []).length})
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {(m.references || []).map((r) => {
-                    const sideStyle = getSideColor(r.side_type);
-                    return (
-                      <div key={r.id} style={{ background: 'var(--bg-card)', padding: '10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '6px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: 1 }}>
-                            <span style={{ 
-                              fontSize: '0.72rem', 
-                              fontWeight: 'bold', 
-                              padding: '2px 8px', 
-                              borderRadius: '10px',
-                              background: sideStyle.bg,
-                              color: sideStyle.text,
-                              border: `1px solid ${sideStyle.border}`
-                            }}>
-                              {r.side_type}
-                            </span>
-                            <input 
-                              type="text" 
-                              className="form-input" 
-                              style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', fontSize: '0.9rem' }}
-                              value={r.code}
-                              onChange={(e) => updateMontajeSubRefQty(m.id, r.id, 'code', e.target.value)}
-                              placeholder="Código Ref"
-                            />
-                          </div>
-
-                          {(m.references || []).length > 1 && (
-                            <button type="button" className="btn btn-danger" style={{ minHeight: '32px', padding: '0 8px' }} onClick={() => removeMontajeSubReference(m.id, r.id)}>
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* CONTADORES OK Y KO POR CADA REFERENCIA INDIVIDUAL */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                          <div>
-                            <div style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <CheckCircle size={12} /> PROD OK
-                            </div>
-                            <input 
-                              type="number" 
-                              className="form-input" 
-                              style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#10b981', textAlign: 'center' }}
-                              value={r.quantity_ok}
-                              onChange={(e) => updateMontajeSubRefQty(m.id, r.id, 'quantity_ok', e.target.value)}
-                            />
-                          </div>
-
-                          <div>
-                            <div style={{ fontSize: '0.7rem', color: '#f43f5e', fontWeight: 'bold', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <AlertOctagon size={12} /> SCRAP KO
-                            </div>
-                            <input 
-                              type="number" 
-                              className="form-input" 
-                              style={{ minHeight: '38px', fontWeight: 'bold', fontSize: '1rem', color: '#f43f5e', textAlign: 'center' }}
-                              value={r.quantity_ko}
-                              onChange={(e) => updateMontajeSubRefQty(m.id, r.id, 'quantity_ko', e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* OPCIÓN CSL1 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                <input 
-                  type="checkbox" 
-                  id={`csl1-${m.id}`} 
-                  checked={!!m.is_csl1} 
-                  onChange={(e) => updateMontajeField(m.id, 'is_csl1', e.target.checked)} 
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                />
-                <label htmlFor={`csl1-${m.id}`} style={{ fontSize: '0.78rem', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  Selección especial CSL1
-                  {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold' }}>CSL1</span>}
-                </label>
-              </div>
-
             </div>
           );
         })}
@@ -1296,6 +1342,9 @@ ${incidentsNotes || 'Ninguna.'}`;
           {incidentsNotes || 'Ninguna.'}
         </div>
       </div>
+
+      {/* MODAL EDICIÓN DE ASIGNACIÓN (MAQUINA O MONTAJE) */}
+      {renderEntryEditorModal()}
 
       {/* MODAL PREVISUALIZACIÓN DE IMAGEN */}
       {previewImage && (
