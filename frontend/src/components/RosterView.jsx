@@ -51,7 +51,7 @@ const compileWeeklyHistoryClientSide = (sheets, operators, machines, targetMonda
       const dayIdx = rawDay === 0 ? 6 : rawDay - 1;
       const dayName = daysOfWeek[dayIdx];
 
-      items.forEach(item => {
+      (sheet.items || []).forEach(item => {
         const opId = item.operator_id || (item.operator && item.operator.id);
         const opName = item.operator_name_manual || (item.operator && item.operator.name);
         const opNum = item.operator_number_manual || (item.operator && item.operator.operator_number);

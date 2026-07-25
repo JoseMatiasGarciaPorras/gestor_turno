@@ -55,13 +55,13 @@ export function generateReportHtml(sheet) {
 
     return `
     <tr>
-        <td style="font-weight: bold;">\${macName}</td>
-        <td style="text-align: center;">\${side}</td>
-        <td style="font-family: monospace; font-weight: bold;">\${partRef}</td>
-        <td style="text-align: center; font-weight: bold; color: #15803d;">\${qtyOk}</td>
-        <td style="text-align: center; color: #b91c1c;">\${qtyKo}</td>
-        <td style="text-align: center; font-weight: bold;">\${opNum}</td>
-        <td>\${opName}</td>
+        <td style="font-weight: bold;">${macName}</td>
+        <td style="text-align: center;">${side}</td>
+        <td style="font-family: monospace; font-weight: bold;">${partRef}</td>
+        <td style="text-align: center; font-weight: bold; color: #15803d;">${qtyOk}</td>
+        <td style="text-align: center; color: #b91c1c;">${qtyKo}</td>
+        <td style="text-align: center; font-weight: bold;">${opNum}</td>
+        <td>${opName}</td>
     </tr>
     `;
   };
@@ -74,7 +74,7 @@ export function generateReportHtml(sheet) {
   <html lang="es">
   <head>
       <meta charset="UTF-8">
-      <title>PARTE DE PRODUCCIÓN DIARIO - \${sheet.production_date}</title>
+      <title>PARTE DE PRODUCCIÓN DIARIO - ${sheet.production_date}</title>
       <style>
           body { font-family: Arial, sans-serif; background: #f8fafc; color: #0f172a; padding: 20px; margin: 0; }
           .paper { max-width: 850px; margin: 0 auto; background: white; border: 2px solid #0f172a; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
@@ -90,9 +90,9 @@ export function generateReportHtml(sheet) {
   <body>
       <div class="paper">
           <div class="header-grid">
-              <div>DIA / FECHA: <span style="font-weight: normal;">\${sheet.production_date}</span></div>
-              <div>TURNO: <span style="font-weight: normal;">\${sheet.shift_name}</span></div>
-              <div>ENCARGADO: <span style="font-weight: normal;">\${sheet.supervisor}</span></div>
+              <div>DIA / FECHA: <span style="font-weight: normal;">${sheet.production_date}</span></div>
+              <div>TURNO: <span style="font-weight: normal;">${sheet.shift_name}</span></div>
+              <div>ENCARGADO: <span style="font-weight: normal;">${sheet.supervisor}</span></div>
           </div>
 
           <div class="section-title">PRODUCCIÓN MÁQUINAS EN PLANTA</div>
@@ -109,11 +109,11 @@ export function generateReportHtml(sheet) {
                   </tr>
               </thead>
               <tbody>
-                  \${plantaRowsHtml ? plantaRowsHtml : '<tr><td colspan="7" style="text-align:center;">Sin filas de máquinas en planta</td></tr>'}
+                  ${plantaRowsHtml ? plantaRowsHtml : '<tr><td colspan="7" style="text-align:center;">Sin filas de máquinas en planta</td></tr>'}
               </tbody>
           </table>
 
-          \${montajeRowsHtml ? \`
+          ${montajeRowsHtml ? `
           <div class="section-title">MONTAJE</div>
           <table>
               <thead>
@@ -128,14 +128,14 @@ export function generateReportHtml(sheet) {
                   </tr>
               </thead>
               <tbody>
-                  \${montajeRowsHtml}
+                  ${montajeRowsHtml}
               </tbody>
           </table>
-          \` : ''}
+          ` : ''}
 
           <div class="notes">
               <strong>FALTA PERSONAL O NOTAS / INCIDENCIAS:</strong><br/>
-              \${sheet.incidents_notes ? sheet.incidents_notes : 'Ninguna.'}
+              ${sheet.incidents_notes ? sheet.incidents_notes : 'Ninguna.'}
           </div>
       </div>
   </body>
