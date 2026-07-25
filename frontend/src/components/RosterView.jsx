@@ -115,7 +115,7 @@ const compileWeeklyHistoryClientSide = (sheets, operators, machines, targetMonda
   };
 };
 
-export default function RosterView({ shiftSheets = [], operators = [], machines = [], weeklySnapshots = [], onRefresh }) {
+export default function RosterView({ shiftSheets = [], operators = [], machines = [], weeklySnapshots = [], onRefresh, token }) {
   const [subTab, setSubTab] = useState('current');
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [generatingImage, setGeneratingImage] = useState(false);
@@ -307,7 +307,8 @@ export default function RosterView({ shiftSheets = [], operators = [], machines 
       };
       
       const res = await fetch(`${getApiBaseUrl()}/weekly-snapshots/trigger`, {
-        method: 'POST'
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       if (res.ok) {
         alert("Comprobación de cierres e instantáneas completada.");

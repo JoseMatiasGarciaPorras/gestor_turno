@@ -6,6 +6,7 @@ import ShiftHistoryView from './components/ShiftHistoryView';
 import OperatorsList from './components/OperatorsList';
 import RosterView from './components/RosterView';
 import BottomNav from './components/BottomNav';
+import LoginRegisterView from './components/LoginRegisterView';
 
 const getApiBaseUrl = () => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
@@ -156,6 +157,40 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('sheet'); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Estados de autenticación
+  const [token, setToken] = useState(() => localStorage.getItem('gestor_token') || null);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  const handleLogout = () => {
+    setToken(null);
+    setCurrentUser(null);
+    localStorage.removeItem('gestor_token');
+    setActiveTab('sheet');
+  };
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!token) {
+        setCurrentUser(null);
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCurrentUser(data);
+        } else {
+          handleLogout();
+        }
+      } catch (e) {
+        console.warn("Error cargando perfil de supervisor:", e);
+      }
+    };
+    fetchProfile();
+  }, [token]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -313,11 +348,19 @@ export default function App() {
 
   // Guardar Parte de Turno
   const handleSaveSheet = async (sheetPayload) => {
+    if (!token) {
+      alert("Debes iniciar sesión como supervisor para guardar partes en el servidor.");
+      setActiveTab('login');
+      return;
+    }
     let createdSheet = null;
     try {
       const res = await fetch(`${API_BASE_URL}/shift-sheets`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(sheetPayload)
       });
       if (res.ok) {
@@ -358,9 +401,17 @@ export default function App() {
   };
 
   const handleDeleteSheet = async (id) => {
+    if (!token) {
+      alert("Debes iniciar sesión como supervisor para eliminar partes.");
+      setActiveTab('login');
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE_URL}/shift-sheets/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       if (res.ok) {
         // Success
@@ -387,7 +438,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/operators`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ ...opData, is_active: true })
       });
       if (res.ok) { await fetchData(); return; }
@@ -401,7 +455,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/operators/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(opData)
       });
       if (res.ok) { await fetchData(); return; }
@@ -413,7 +470,12 @@ export default function App() {
 
   const handleDeleteOperator = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/operators/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/operators/${id}`, { 
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = operators.filter(o => o.id !== id);
@@ -430,7 +492,10 @@ export default function App() {
       };
       const res = await fetch(`${API_BASE_URL}/operators/${operator.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(updatedPayload)
       });
       if (res.ok) {
@@ -450,7 +515,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/parts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(partData)
       });
       if (res.ok) { await fetchData(); return; }
@@ -470,7 +538,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/parts/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(partData)
       });
       if (res.ok) { await fetchData(); return; }
@@ -487,7 +558,12 @@ export default function App() {
 
   const handleDeletePart = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/parts/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/parts/${id}`, { 
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = parts.filter(p => p.id !== id);
@@ -500,7 +576,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/machines`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(machineData)
       });
       if (res.ok) { await fetchData(); return; }
@@ -514,7 +593,10 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/machines/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(machineData)
       });
       if (res.ok) { await fetchData(); return; }
@@ -526,7 +608,12 @@ export default function App() {
 
   const handleDeleteMachine = async (id) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/machines/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/machines/${id}`, { 
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (res.ok) { await fetchData(); return; }
     } catch (e) {}
     const updated = machines.filter(m => m.id !== id);
@@ -559,6 +646,28 @@ export default function App() {
               ⚠️ Offline ({API_BASE_URL})
             </span>
           )}
+          
+          {currentUser ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', background: 'rgba(96, 165, 250, 0.12)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(96, 165, 250, 0.25)', color: '#93c5fd' }}>
+              <span>👤 {currentUser.full_name || currentUser.email}</span>
+              <button 
+                onClick={handleLogout} 
+                style={{ background: 'none', border: 'none', color: '#f87171', fontWeight: 'bold', cursor: 'pointer', padding: '0 0 0 6px', borderLeft: '1px solid rgba(255,255,255,0.15)' }}
+                title="Cerrar sesión"
+              >
+                Salir
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setActiveTab('login')} 
+              className="btn btn-secondary" 
+              style={{ padding: '6px 12px', minHeight: '34px', fontSize: '0.75rem', background: 'rgba(96, 165, 250, 0.1)', border: '1px solid rgba(96, 165, 250, 0.3)', color: '#93c5fd', whiteSpace: 'nowrap' }}
+            >
+              Acceso Sup.
+            </button>
+          )}
+
           <button onClick={fetchData} className="btn btn-secondary" style={{ padding: '6px 10px', minHeight: '36px', fontSize: '0.8rem' }}>
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
           </button>
@@ -566,6 +675,17 @@ export default function App() {
       </header>
 
       {/* Main Active Tab View */}
+      {activeTab === 'login' && (
+        <LoginRegisterView 
+          API_BASE_URL={API_BASE_URL} 
+          onLogin={(newToken) => {
+            setToken(newToken);
+            localStorage.setItem('gestor_token', newToken);
+            setActiveTab('sheet');
+          }} 
+        />
+      )}
+
       {activeTab === 'sheet' && (
         <ShiftProductionSheet 
           machines={machines}
@@ -578,11 +698,22 @@ export default function App() {
       )}
 
       {activeTab === 'operators' && (
-        <OperatorsList 
-          operators={operators}
-          onToggleActive={handleToggleOperatorActive}
-          onCreateOperator={handleCreateOperator}
-        />
+        token ? (
+          <OperatorsList 
+            operators={operators}
+            onToggleActive={handleToggleOperatorActive}
+            onCreateOperator={handleCreateOperator}
+          />
+        ) : (
+          <LoginRegisterView 
+            API_BASE_URL={API_BASE_URL} 
+            onLogin={(newToken) => {
+              setToken(newToken);
+              localStorage.setItem('gestor_token', newToken);
+              setActiveTab('operators');
+            }} 
+          />
+        )
       )}
 
       {activeTab === 'roster' && (
@@ -592,6 +723,7 @@ export default function App() {
           machines={machines}
           weeklySnapshots={weeklySnapshots}
           onRefresh={fetchData}
+          token={token}
         />
       )}
 
@@ -604,24 +736,35 @@ export default function App() {
       )}
 
       {activeTab === 'crud' && (
-        <AdminCrudView 
-          machines={machines}
-          operators={operators}
-          parts={parts}
-          onCreateMachine={handleCreateMachine}
-          onUpdateMachine={handleUpdateMachine}
-          onDeleteMachine={handleDeleteMachine}
-          onCreateOperator={handleCreateOperator}
-          onUpdateOperator={handleUpdateOperator}
-          onDeleteOperator={handleDeleteOperator}
-          onCreatePart={handleCreatePart}
-          onUpdatePart={handleUpdatePart}
-          onDeletePart={handleDeletePart}
-        />
+        token ? (
+          <AdminCrudView 
+            machines={machines}
+            operators={operators}
+            parts={parts}
+            onCreateMachine={handleCreateMachine}
+            onUpdateMachine={handleUpdateMachine}
+            onDeleteMachine={handleDeleteMachine}
+            onCreateOperator={handleCreateOperator}
+            onUpdateOperator={handleUpdateOperator}
+            onDeleteOperator={handleDeleteOperator}
+            onCreatePart={handleCreatePart}
+            onUpdatePart={handleUpdatePart}
+            onDeletePart={handleDeletePart}
+          />
+        ) : (
+          <LoginRegisterView 
+            API_BASE_URL={API_BASE_URL} 
+            onLogin={(newToken) => {
+              setToken(newToken);
+              localStorage.setItem('gestor_token', newToken);
+              setActiveTab('crud');
+            }} 
+          />
+        )
       )}
 
       {/* Bottom Navigation Bar */}
-      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
+      <BottomNav activeTab={activeTab === 'login' ? 'sheet' : activeTab} setActiveTab={setActiveTab} />
     </div>
   );
 }

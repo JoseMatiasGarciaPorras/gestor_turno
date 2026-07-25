@@ -6,14 +6,16 @@ from typing import List, Optional
 from datetime import datetime, date
 
 from app.database import engine, Base, get_db
-from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot
+from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot, User
 from app.schemas import (
     MachineCreate, MachineResponse, MachineStatusUpdate,
     OperatorCreate, OperatorResponse,
     PartCreate, PartResponse,
     ShiftSheetCreate, ShiftSheetResponse,
-    SummaryResponse, WeeklySnapshotResponse
+    SummaryResponse, WeeklySnapshotResponse,
+    UserCreate, UserResponse, Token
 )
+from app.auth import get_current_user, hash_password, verify_password, create_access_token
 
 # Recrear o actualizar tablas si no existen
 Base.metadata.create_all(bind=engine)
@@ -229,6 +231,44 @@ def startup_event():
     finally:
         db.close()
 
+# --- AUTENTICACIÓN ---
+
+@app.post("/api/auth/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == user.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ya existe un usuario registrado con este correo electrónico."
+        )
+    
+    hashed_pwd = hash_password(user.password)
+    db_user = User(
+        email=user.email,
+        hashed_password=hashed_pwd,
+        full_name=user.full_name
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+@app.post("/api/auth/login", response_model=Token)
+def login_user(payload: UserCreate, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Correo electrónico o contraseña incorrectos."
+        )
+    
+    access_token = create_access_token(subject=user.email)
+    return Token(access_token=access_token, token_type="bearer")
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def get_current_user_profile(current_user: User = Depends(get_current_user)):
+    return current_user
+
 # --- OPERARIOS ---
 
 @app.get("/api/operators", response_model=List[OperatorResponse])
@@ -236,7 +276,7 @@ def get_operators(db: Session = Depends(get_db)):
     return db.query(Operator).order_by(Operator.name.asc()).all()
 
 @app.post("/api/operators", response_model=OperatorResponse, status_code=status.HTTP_201_CREATED)
-def create_operator(operator: OperatorCreate, db: Session = Depends(get_db)):
+def create_operator(operator: OperatorCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     existing = db.query(Operator).filter(Operator.operator_number == operator.operator_number).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Ya existe un operario con el número '{operator.operator_number}'.")
@@ -248,7 +288,7 @@ def create_operator(operator: OperatorCreate, db: Session = Depends(get_db)):
     return db_op
 
 @app.put("/api/operators/{operator_id}", response_model=OperatorResponse)
-def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Depends(get_db)):
+def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     op = db.query(Operator).filter(Operator.id == operator_id).first()
     if not op:
         raise HTTPException(status_code=404, detail="Operario no encontrado.")
@@ -260,7 +300,7 @@ def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Dep
     return op
 
 @app.delete("/api/operators/{operator_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_operator(operator_id: int, db: Session = Depends(get_db)):
+def delete_operator(operator_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     op = db.query(Operator).filter(Operator.id == operator_id).first()
     if not op:
         raise HTTPException(status_code=404, detail="Operario no encontrado.")
@@ -276,7 +316,7 @@ def get_parts(db: Session = Depends(get_db)):
     return db.query(Part).options(joinedload(Part.references_list)).order_by(Part.name.asc()).all()
 
 @app.post("/api/parts", response_model=PartResponse, status_code=status.HTTP_201_CREATED)
-def create_part(part: PartCreate, db: Session = Depends(get_db)):
+def create_part(part: PartCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     db_part = Part(name=part.name, description=part.description, is_montaje=part.is_montaje)
     db.add(db_part)
     db.commit()
@@ -294,7 +334,7 @@ def create_part(part: PartCreate, db: Session = Depends(get_db)):
     return db.query(Part).options(joinedload(Part.references_list)).filter(Part.id == db_part.id).first()
 
 @app.put("/api/parts/{part_id}", response_model=PartResponse)
-def update_part(part_id: int, payload: PartCreate, db: Session = Depends(get_db)):
+def update_part(part_id: int, payload: PartCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     part = db.query(Part).filter(Part.id == part_id).first()
     if not part:
         raise HTTPException(status_code=404, detail="Pieza no encontrada.")
@@ -317,7 +357,7 @@ def update_part(part_id: int, payload: PartCreate, db: Session = Depends(get_db)
     return db.query(Part).options(joinedload(Part.references_list)).filter(Part.id == part_id).first()
 
 @app.delete("/api/parts/{part_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_part(part_id: int, db: Session = Depends(get_db)):
+def delete_part(part_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     part = db.query(Part).filter(Part.id == part_id).first()
     if not part:
         raise HTTPException(status_code=404, detail="Pieza no encontrada.")
@@ -333,7 +373,7 @@ def get_machines(db: Session = Depends(get_db)):
     return db.query(Machine).order_by(Machine.id.asc()).all()
 
 @app.post("/api/machines", response_model=MachineResponse, status_code=status.HTTP_201_CREATED)
-def create_machine(machine: MachineCreate, db: Session = Depends(get_db)):
+def create_machine(machine: MachineCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     db_mac = Machine(
         name=machine.name,
         machine_number=machine.machine_number,
@@ -348,7 +388,7 @@ def create_machine(machine: MachineCreate, db: Session = Depends(get_db)):
     return db_mac
 
 @app.put("/api/machines/{machine_id}", response_model=MachineResponse)
-def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depends(get_db)):
+def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     mac = db.query(Machine).filter(Machine.id == machine_id).first()
     if not mac:
         raise HTTPException(status_code=404, detail="Máquina no encontrada.")
@@ -364,7 +404,7 @@ def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depend
     return mac
 
 @app.patch("/api/machines/{machine_id}/status", response_model=MachineResponse)
-def update_machine_status(machine_id: int, payload: MachineStatusUpdate, db: Session = Depends(get_db)):
+def update_machine_status(machine_id: int, payload: MachineStatusUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     machine = db.query(Machine).filter(Machine.id == machine_id).first()
     if not machine:
         raise HTTPException(status_code=404, detail="Máquina no encontrada.")
@@ -374,7 +414,7 @@ def update_machine_status(machine_id: int, payload: MachineStatusUpdate, db: Ses
     return machine
 
 @app.delete("/api/machines/{machine_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_machine(machine_id: int, db: Session = Depends(get_db)):
+def delete_machine(machine_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     mac = db.query(Machine).filter(Machine.id == machine_id).first()
     if not mac:
         raise HTTPException(status_code=404, detail="Máquina no encontrada.")
@@ -394,7 +434,7 @@ def get_shift_sheets(db: Session = Depends(get_db)):
         .order_by(ShiftSheet.id.desc()).all()
 
 @app.post("/api/shift-sheets", response_model=ShiftSheetResponse, status_code=status.HTTP_201_CREATED)
-def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db)):
+def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sheet = ShiftSheet(
         production_date=payload.production_date,
         shift_name=payload.shift_name,
@@ -458,7 +498,7 @@ def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db))
         .filter(ShiftSheet.id == sheet.id).first()
 
 @app.delete("/api/shift-sheets/{sheet_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_shift_sheet(sheet_id: int, db: Session = Depends(get_db)):
+def delete_shift_sheet(sheet_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sheet = db.query(ShiftSheet).filter(ShiftSheet.id == sheet_id).first()
     if not sheet:
         raise HTTPException(status_code=404, detail="Parte de producción no encontrado.")
@@ -603,7 +643,7 @@ def get_current_weekly_history(db: Session = Depends(get_db)):
     return compile_weekly_history(current_monday, db)
 
 @app.post("/api/weekly-snapshots/trigger")
-def trigger_weekly_snapshots(db: Session = Depends(get_db)):
+def trigger_weekly_snapshots(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     generate_past_week_snapshots(db)
     return {"status": "success", "message": "Comprobación de instantáneas completada."}
 

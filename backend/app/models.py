@@ -100,3 +100,13 @@ class WeeklySnapshot(Base):
     week_end_date = Column(Date, nullable=False)
     snapshot_data = Column(Text, nullable=False)  # JSON text
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(150), unique=True, index=True, nullable=False)
+    hashed_password = Column(String(200), nullable=False)
+    full_name = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
