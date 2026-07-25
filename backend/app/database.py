@@ -17,8 +17,19 @@ def get_database_url():
     # Priorizar variable de entorno DATABASE_URL estándar (ej. para Render Postgres)
     env_db_url = os.getenv("DATABASE_URL")
     if env_db_url:
+        # Limpiar parámetros de sslmode para compatibilidad con pg8000
+        if "sslmode=" in env_db_url:
+            from urllib.parse import urlparse, urlunparse
+            parsed = urlparse(env_db_url)
+            queries = [q for q in parsed.query.split("&") if not q.startswith("sslmode=")]
+            new_query = "&".join(queries)
+            parsed = parsed._replace(query=new_query)
+            env_db_url = urlunparse(parsed)
+
         if env_db_url.startswith("postgres://"):
-            return env_db_url.replace("postgres://", "postgresql://", 1)
+            return env_db_url.replace("postgres://", "postgresql+pg8000://", 1)
+        elif env_db_url.startswith("postgresql://"):
+            return env_db_url.replace("postgresql://", "postgresql+pg8000://", 1)
         return env_db_url
 
     if USE_SQLITE:
@@ -44,9 +55,19 @@ try:
         retries = 5
         connected = False
         last_exception = None
+        
+        # Preparar connect_args para SSL si usamos pg8000 en Render o si se solicitó sslmode originalmente
+        connect_args = {}
+        if "postgresql+pg8000" in DATABASE_URL:
+            orig_db_url = os.getenv("DATABASE_URL", "")
+            if os.getenv("RENDER") or "sslmode" in orig_db_url.lower():
+                import ssl
+                ssl_context = ssl.create_default_context()
+                connect_args["ssl_context"] = ssl_context
+
         for i in range(retries):
             try:
-                engine = create_engine(DATABASE_URL, pool_recycle=3600)
+                engine = create_engine(DATABASE_URL, pool_recycle=3600, connect_args=connect_args)
                 # Test connection
                 with engine.connect() as conn:
                     pass
