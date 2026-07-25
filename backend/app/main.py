@@ -207,22 +207,22 @@ def startup_event():
             db.execute(text("ALTER TABLE parts ADD COLUMN is_montaje BOOLEAN DEFAULT FALSE"))
             db.commit()
         except Exception:
-            pass
+            db.rollback()
         try:
             db.execute(text("ALTER TABLE production_items ADD COLUMN is_csl1 BOOLEAN DEFAULT FALSE"))
             db.commit()
         except Exception:
-            pass
+            db.rollback()
         try:
             db.execute(text("ALTER TABLE machines ADD COLUMN is_small BOOLEAN DEFAULT FALSE"))
             db.commit()
         except Exception:
-            pass
+            db.rollback()
         try:
             db.execute(text("ALTER TABLE operators ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
             db.commit()
         except Exception:
-            pass
+            db.rollback()
         # Generar instantáneas de semanas anteriores concluidas
         generate_past_week_snapshots(db)
         seed_initial_data(db)
