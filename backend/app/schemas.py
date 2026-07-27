@@ -2,6 +2,32 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date
 
+# --- USER & AUTH SCHEMAS ---
+class UserBase(BaseModel):
+    email: str
+    full_name: Optional[str] = None
+
+class UserCreate(UserBase):
+    password: str
+    role: Optional[str] = "encargado"
+    supervisor_key: Optional[str] = None
+
+class UserResponse(UserBase):
+    id: int
+    role: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
+
+
 # --- OPERATOR SCHEMAS ---
 class OperatorBase(BaseModel):
     name: str
@@ -114,8 +140,10 @@ class ShiftSheetCreate(ShiftSheetBase):
 
 class ShiftSheetResponse(ShiftSheetBase):
     id: int
+    user_id: Optional[int] = None
     created_at: datetime
     items: List[ProductionItemResponse] = []
+    user: Optional[UserResponse] = None
 
     class Config:
         from_attributes = True
@@ -131,33 +159,15 @@ class SummaryResponse(BaseModel):
 
 class WeeklySnapshotResponse(BaseModel):
     id: int
+    user_id: Optional[int] = None
     week_start_date: date
     week_end_date: date
     snapshot_data: str
     created_at: datetime
+    user: Optional[UserResponse] = None
 
     class Config:
         from_attributes = True
 
-# --- USER & AUTH SCHEMAS ---
-class UserBase(BaseModel):
-    email: str
-    full_name: Optional[str] = None
 
-class UserCreate(UserBase):
-    password: str
-
-class UserResponse(UserBase):
-    id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-class TokenData(BaseModel):
-    email: Optional[str] = None
 

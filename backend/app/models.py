@@ -55,6 +55,7 @@ class ShiftSheet(Base):
     __tablename__ = "shift_sheets"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     production_date = Column(Date, default=date.today, nullable=False)
     shift_name = Column(String(50), nullable=False)
     supervisor = Column(String(100), nullable=False)
@@ -62,6 +63,7 @@ class ShiftSheet(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     items = relationship("ProductionItem", back_populates="shift_sheet", cascade="all, delete-orphan")
+    user = relationship("User", back_populates="shift_sheets")
 
 class ProductionItem(Base):
     __tablename__ = "production_items"
@@ -96,10 +98,13 @@ class WeeklySnapshot(Base):
     __tablename__ = "weekly_snapshots"
 
     id = Column(Integer, primary_key=True, index=True)
-    week_start_date = Column(Date, unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    week_start_date = Column(Date, index=True, nullable=False)
     week_end_date = Column(Date, nullable=False)
     snapshot_data = Column(Text, nullable=False)  # JSON text
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="weekly_snapshots")
 
 class User(Base):
     __tablename__ = "users"
@@ -108,5 +113,17 @@ class User(Base):
     email = Column(String(150), unique=True, index=True, nullable=False)
     hashed_password = Column(String(200), nullable=False)
     full_name = Column(String(100), nullable=True)
+    role = Column(String(50), default="encargado", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    shift_sheets = relationship("ShiftSheet", back_populates="user")
+    weekly_snapshots = relationship("WeeklySnapshot", back_populates="user")
+
+class UserOperatorActive(Base):
+    __tablename__ = "user_operator_active"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    operator_id = Column(Integer, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
 

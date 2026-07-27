@@ -115,10 +115,11 @@ const compileWeeklyHistoryClientSide = (sheets, operators, machines, targetMonda
   };
 };
 
-export default function RosterView({ shiftSheets = [], operators = [], machines = [], weeklySnapshots = [], onRefresh, token }) {
+export default function RosterView({ shiftSheets = [], operators = [], machines = [], weeklySnapshots = [], onRefresh, token, currentUser, users = [] }) {
   const [subTab, setSubTab] = useState('current');
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [generatingImage, setGeneratingImage] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState('');
 
   const [currentWeekMonday, setCurrentWeekMonday] = useState(() => {
     const today = new Date();
@@ -140,9 +141,23 @@ export default function RosterView({ shiftSheets = [], operators = [], machines 
     setCurrentWeekMonday(d.toISOString().split('T')[0]);
   };
 
+  const filteredSheets = React.useMemo(() => {
+    if (currentUser?.role === 'supervisor' && selectedUserId) {
+      return shiftSheets.filter(s => s.user_id && Number(s.user_id) === Number(selectedUserId));
+    }
+    return shiftSheets;
+  }, [shiftSheets, currentUser, selectedUserId]);
+
   const currentWeeklyHistory = React.useMemo(() => {
-    return compileWeeklyHistoryClientSide(shiftSheets, operators, machines, currentWeekMonday);
-  }, [shiftSheets, operators, machines, currentWeekMonday]);
+    return compileWeeklyHistoryClientSide(filteredSheets, operators, machines, currentWeekMonday);
+  }, [filteredSheets, operators, machines, currentWeekMonday]);
+
+  const filteredSnapshots = React.useMemo(() => {
+    if (currentUser?.role === 'supervisor' && selectedUserId) {
+      return weeklySnapshots.filter(snap => snap.user_id && Number(snap.user_id) === Number(selectedUserId));
+    }
+    return weeklySnapshots;
+  }, [weeklySnapshots, currentUser, selectedUserId]);
 
   const printAreaRef = useRef(null);
   const modalPrintAreaRef = useRef(null);
@@ -322,6 +337,46 @@ export default function RosterView({ shiftSheets = [], operators = [], machines 
 
   return (
     <div style={{ marginTop: '10px' }}>
+      {currentUser?.role === 'supervisor' && (
+        <div style={{ 
+          background: 'var(--bg-card)', 
+          padding: '12px 16px', 
+          borderRadius: 'var(--radius-md)', 
+          border: '1px solid rgba(96, 165, 250, 0.25)', 
+          marginBottom: '16px',
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}>
+          <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#93c5fd' }}>
+            🔍 Panel Supervisor - Filtrar Cuadrante:
+          </span>
+          <select
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
+            style={{ 
+              background: 'var(--bg-input, #0f172a)', 
+              color: '#ffffff', 
+              border: '1px solid var(--border-color, #334155)', 
+              padding: '6px 12px', 
+              borderRadius: 'var(--radius-sm, 6px)',
+              fontSize: '0.85rem',
+              minHeight: '36px',
+              flex: 1,
+              maxWidth: '300px'
+            }}
+          >
+            <option value="">Mostrar Todos (Combinado)</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>
+                {u.full_name} ({u.email})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Tab Selectors */}
       <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', background: 'var(--bg-card)', padding: '4px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
         <button 
@@ -383,20 +438,20 @@ export default function RosterView({ shiftSheets = [], operators = [], machines 
             </button>
           </div>
 
-          {weeklySnapshots.length === 0 ? (
+          {filteredSnapshots.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)', background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
               No hay instantáneas guardadas todavía. Las instantáneas semanales se archivan automáticamente cada lunes para la semana concluida.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {weeklySnapshots.map(snap => (
+              {filteredSnapshots.map(snap => (
                 <div key={snap.id} className="history-card" style={{ padding: '16px' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                     <span style={{ fontWeight: 'bold', color: '#ffffff', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <FileText size={16} color="#60a5fa" /> Roster Semanal: {snap.week_start_date} al {snap.week_end_date}
                     </span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      Archivado el: {new Date(snap.created_at).toLocaleString()}
+                      Archivado el: {new Date(snap.created_at).toLocaleString()} {snap.user ? `| Encargado: ${snap.user.full_name || snap.user.email}` : ''}
                     </span>
                   </div>
                   <button 

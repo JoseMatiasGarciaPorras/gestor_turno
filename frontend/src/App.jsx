@@ -161,12 +161,29 @@ export default function App() {
   // Estados de autenticación
   const [token, setToken] = useState(() => localStorage.getItem('gestor_token') || null);
   const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
 
   const handleLogout = () => {
     setToken(null);
     setCurrentUser(null);
+    setUsers([]);
     localStorage.removeItem('gestor_token');
     setActiveTab('sheet');
+  };
+
+  const fetchUsers = async () => {
+    if (!token || currentUser?.role !== 'supervisor') return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/users`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
+    } catch (e) {
+      console.warn("Error cargando lista de encargados:", e);
+    }
   };
 
   useEffect(() => {
@@ -192,14 +209,23 @@ export default function App() {
     fetchProfile();
   }, [token]);
 
+  useEffect(() => {
+    if (token && currentUser?.role === 'supervisor') {
+      fetchUsers();
+    } else {
+      setUsers([]);
+    }
+  }, [token, currentUser]);
+
   const fetchData = async () => {
     setLoading(true);
+    const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
     try {
       const [resMac, resOp, resParts, resSheets] = await Promise.all([
         fetch(`${API_BASE_URL}/machines`),
-        fetch(`${API_BASE_URL}/operators`),
+        fetch(`${API_BASE_URL}/operators`, { headers: authHeaders }),
         fetch(`${API_BASE_URL}/parts`),
-        fetch(`${API_BASE_URL}/shift-sheets`)
+        fetch(`${API_BASE_URL}/shift-sheets`, { headers: authHeaders })
       ]);
 
       if (resMac.ok && resOp.ok && resParts.ok && resSheets.ok) {
@@ -269,8 +295,8 @@ export default function App() {
         // Fetch weekly roster data
         try {
           const [resHist, resSnaps] = await Promise.all([
-            fetch(`${API_BASE_URL}/weekly-history/current`),
-            fetch(`${API_BASE_URL}/weekly-snapshots`)
+            fetch(`${API_BASE_URL}/weekly-history/current`, { headers: authHeaders }),
+            fetch(`${API_BASE_URL}/weekly-snapshots`, { headers: authHeaders })
           ]);
           if (resHist.ok) {
             const histData = await resHist.json();
@@ -396,7 +422,7 @@ export default function App() {
       const blobUrl = URL.createObjectURL(blob);
       window.open(blobUrl, '_blank');
     } else {
-      window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html`, '_blank');
+      window.open(`${API_BASE_URL}/shift-sheets/${sheetId}/html?token=${token}`, '_blank');
     }
   };
 
@@ -621,6 +647,21 @@ export default function App() {
     localStorage.setItem('gestor_machines', JSON.stringify(updated));
   };
 
+  if (!token) {
+    return (
+      <div className="app-wrapper" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <LoginRegisterView 
+          API_BASE_URL={API_BASE_URL} 
+          onLogin={(newToken) => {
+            setToken(newToken);
+            localStorage.setItem('gestor_token', newToken);
+            setActiveTab('sheet');
+          }} 
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app-wrapper">
       {/* Header */}
@@ -649,7 +690,7 @@ export default function App() {
           
           {currentUser ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', background: 'rgba(96, 165, 250, 0.12)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(96, 165, 250, 0.25)', color: '#93c5fd' }}>
-              <span>👤 {currentUser.full_name || currentUser.email}</span>
+              <span>👤 {currentUser.role === 'supervisor' ? '[Sup.] ' : ''}{currentUser.full_name || currentUser.email}</span>
               <button 
                 onClick={handleLogout} 
                 style={{ background: 'none', border: 'none', color: '#f87171', fontWeight: 'bold', cursor: 'pointer', padding: '0 0 0 6px', borderLeft: '1px solid rgba(255,255,255,0.15)' }}
@@ -675,17 +716,6 @@ export default function App() {
       </header>
 
       {/* Main Active Tab View */}
-      {activeTab === 'login' && (
-        <LoginRegisterView 
-          API_BASE_URL={API_BASE_URL} 
-          onLogin={(newToken) => {
-            setToken(newToken);
-            localStorage.setItem('gestor_token', newToken);
-            setActiveTab('sheet');
-          }} 
-        />
-      )}
-
       {activeTab === 'sheet' && (
         <ShiftProductionSheet 
           machines={machines}
@@ -698,22 +728,11 @@ export default function App() {
       )}
 
       {activeTab === 'operators' && (
-        token ? (
-          <OperatorsList 
-            operators={operators}
-            onToggleActive={handleToggleOperatorActive}
-            onCreateOperator={handleCreateOperator}
-          />
-        ) : (
-          <LoginRegisterView 
-            API_BASE_URL={API_BASE_URL} 
-            onLogin={(newToken) => {
-              setToken(newToken);
-              localStorage.setItem('gestor_token', newToken);
-              setActiveTab('operators');
-            }} 
-          />
-        )
+        <OperatorsList 
+          operators={operators}
+          onToggleActive={handleToggleOperatorActive}
+          onCreateOperator={handleCreateOperator}
+        />
       )}
 
       {activeTab === 'roster' && (
@@ -724,6 +743,8 @@ export default function App() {
           weeklySnapshots={weeklySnapshots}
           onRefresh={fetchData}
           token={token}
+          currentUser={currentUser}
+          users={users}
         />
       )}
 
@@ -736,35 +757,24 @@ export default function App() {
       )}
 
       {activeTab === 'crud' && (
-        token ? (
-          <AdminCrudView 
-            machines={machines}
-            operators={operators}
-            parts={parts}
-            onCreateMachine={handleCreateMachine}
-            onUpdateMachine={handleUpdateMachine}
-            onDeleteMachine={handleDeleteMachine}
-            onCreateOperator={handleCreateOperator}
-            onUpdateOperator={handleUpdateOperator}
-            onDeleteOperator={handleDeleteOperator}
-            onCreatePart={handleCreatePart}
-            onUpdatePart={handleUpdatePart}
-            onDeletePart={handleDeletePart}
-          />
-        ) : (
-          <LoginRegisterView 
-            API_BASE_URL={API_BASE_URL} 
-            onLogin={(newToken) => {
-              setToken(newToken);
-              localStorage.setItem('gestor_token', newToken);
-              setActiveTab('crud');
-            }} 
-          />
-        )
+        <AdminCrudView 
+          machines={machines}
+          operators={operators}
+          parts={parts}
+          onCreateMachine={handleCreateMachine}
+          onUpdateMachine={handleUpdateMachine}
+          onDeleteMachine={handleDeleteMachine}
+          onCreateOperator={handleCreateOperator}
+          onUpdateOperator={handleUpdateOperator}
+          onDeleteOperator={handleDeleteOperator}
+          onCreatePart={handleCreatePart}
+          onUpdatePart={handleUpdatePart}
+          onDeletePart={handleDeletePart}
+        />
       )}
 
       {/* Bottom Navigation Bar */}
-      <BottomNav activeTab={activeTab === 'login' ? 'sheet' : activeTab} setActiveTab={setActiveTab} />
+      <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
     </div>
   );
 }

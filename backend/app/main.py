@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, date
 
 from app.database import engine, Base, get_db
-from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot, User
+from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot, User, UserOperatorActive
 from app.schemas import (
     MachineCreate, MachineResponse, MachineStatusUpdate,
     OperatorCreate, OperatorResponse,
@@ -98,21 +98,32 @@ def seed_initial_data(db: Session):
         db.add_all([r1, r2, r3, r4, r5])
         db.commit()
 
-def compile_weekly_history(start_date: date, db: Session):
+def compile_weekly_history(start_date: date, db: Session, user_id: Optional[int] = None):
     from datetime import timedelta
     from sqlalchemy.orm import joinedload
     
     end_date = start_date + timedelta(days=6)
     operators = db.query(Operator).order_by(Operator.name.asc()).all()
     
-    sheets = db.query(ShiftSheet)\
+    query = db.query(ShiftSheet)\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.machine))\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.operator))\
         .filter(ShiftSheet.production_date >= start_date)\
-        .filter(ShiftSheet.production_date <= end_date)\
-        .all()
+        .filter(ShiftSheet.production_date <= end_date)
+        
+    if user_id is not None:
+        query = query.filter(ShiftSheet.user_id == user_id)
+        
+    sheets = query.all()
     
     days_names = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    
+    # Si estamos compilando para un usuario específico, traemos su mapeo de operarios activos,
+    # si no (combinado), usamos el estado general del operario
+    user_active_map = {}
+    if user_id is not None:
+        user_actives = db.query(UserOperatorActive).filter(UserOperatorActive.user_id == user_id).all()
+        user_active_map = {ua.operator_id: ua.is_active for ua in user_actives}
     
     history_map = []
     for op in operators:
@@ -152,12 +163,13 @@ def compile_weekly_history(start_date: date, db: Session):
                         op_days[day_name].append(label)
         
         formatted_days = {day: (", ".join(op_days[day]) if op_days[day] else "-") for day in days_names}
+        is_active_for_user = user_active_map.get(op.id, op.is_active)
         
         history_map.append({
             "operator_id": op.id,
             "operator_name": op.name,
             "operator_number": op.operator_number,
-            "is_active": op.is_active,
+            "is_active": is_active_for_user,
             "days": formatted_days
         })
         
@@ -167,7 +179,7 @@ def compile_weekly_history(start_date: date, db: Session):
         "history": history_map
     }
 
-def generate_past_week_snapshots(db: Session):
+def generate_past_week_snapshots(db: Session, user_id: int):
     try:
         from datetime import date, timedelta
         import json
@@ -179,25 +191,30 @@ def generate_past_week_snapshots(db: Session):
             past_monday = current_monday - timedelta(days=7 * i)
             past_sunday = past_monday + timedelta(days=6)
             
-            existing = db.query(WeeklySnapshot).filter(WeeklySnapshot.week_start_date == past_monday).first()
+            existing = db.query(WeeklySnapshot).filter(
+                WeeklySnapshot.week_start_date == past_monday,
+                WeeklySnapshot.user_id == user_id
+            ).first()
             if not existing:
                 has_sheets = db.query(ShiftSheet).filter(
                     ShiftSheet.production_date >= past_monday,
-                    ShiftSheet.production_date <= past_sunday
+                    ShiftSheet.production_date <= past_sunday,
+                    ShiftSheet.user_id == user_id
                 ).first() is not None
                 
                 if has_sheets:
-                    compiled = compile_weekly_history(past_monday, db)
+                    compiled = compile_weekly_history(past_monday, db, user_id=user_id)
                     snapshot = WeeklySnapshot(
+                        user_id=user_id,
                         week_start_date=past_monday,
                         week_end_date=past_sunday,
                         snapshot_data=json.dumps(compiled)
                     )
                     db.add(snapshot)
                     db.commit()
-                    print(f"Generada instantánea semanal para: {past_monday} al {past_sunday}")
+                    print(f"Generada instantánea semanal para usuario {user_id} de: {past_monday} al {past_sunday}")
     except Exception as e:
-        print(f"Error generando instantáneas semanales: {e}")
+        print(f"Error generando instantáneas semanales para usuario {user_id}: {e}")
 
 @app.on_event("startup")
 def startup_event():
@@ -225,8 +242,27 @@ def startup_event():
             db.commit()
         except Exception:
             db.rollback()
-        # Generar instantáneas de semanas anteriores concluidas
-        generate_past_week_snapshots(db)
+        try:
+            db.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'encargado'"))
+            db.commit()
+        except Exception:
+            db.rollback()
+        try:
+            db.execute(text("ALTER TABLE shift_sheets ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+            db.commit()
+        except Exception:
+            db.rollback()
+        try:
+            db.execute(text("ALTER TABLE weekly_snapshots ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+            db.commit()
+        except Exception:
+            db.rollback()
+            
+        # Generar instantáneas de semanas anteriores concluidas para todos los encargados
+        users = db.query(User).filter(User.role == "encargado").all()
+        for u in users:
+            generate_past_week_snapshots(db, user_id=u.id)
+            
         seed_initial_data(db)
     finally:
         db.close()
@@ -239,14 +275,24 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un usuario registrado con este correo electrónico."
+            detail="Ya existe un encargado registrado con ese nombre de usuario."
         )
     
+    role = "encargado"
+    if user.role == "supervisor":
+        if user.supervisor_key != "super123":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Clave de supervisor incorrecta."
+            )
+        role = "supervisor"
+
     hashed_pwd = hash_password(user.password)
     db_user = User(
         email=user.email,
         hashed_password=hashed_pwd,
-        full_name=user.full_name
+        full_name=user.full_name or user.email,
+        role=role
     )
     db.add(db_user)
     db.commit()
@@ -259,7 +305,7 @@ def login_user(payload: UserCreate, db: Session = Depends(get_db)):
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Correo electrónico o contraseña incorrectos."
+            detail="Usuario o contraseña incorrectos."
         )
     
     access_token = create_access_token(subject=user.email)
@@ -269,11 +315,41 @@ def login_user(payload: UserCreate, db: Session = Depends(get_db)):
 def get_current_user_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
+@app.get("/api/users", response_model=List[UserResponse])
+def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "supervisor":
+        raise HTTPException(status_code=403, detail="Acceso denegado: Se requieren permisos de supervisor.")
+    return db.query(User).filter(User.role == "encargado").order_by(User.full_name.asc()).all()
+
 # --- OPERARIOS ---
 
 @app.get("/api/operators", response_model=List[OperatorResponse])
-def get_operators(db: Session = Depends(get_db)):
-    return db.query(Operator).order_by(Operator.name.asc()).all()
+def get_operators(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    operators = db.query(Operator).order_by(Operator.name.asc()).all()
+    
+    user_actives = db.query(UserOperatorActive).filter(UserOperatorActive.user_id == current_user.id).all()
+    user_active_map = {ua.operator_id: ua.is_active for ua in user_actives}
+    
+    if not user_actives:
+        initialized_records = []
+        for op in operators:
+            ua = UserOperatorActive(user_id=current_user.id, operator_id=op.id, is_active=op.is_active)
+            db.add(ua)
+            initialized_records.append(ua)
+        db.commit()
+        user_active_map = {ua.operator_id: ua.is_active for ua in initialized_records}
+        
+    response_data = []
+    for op in operators:
+        is_active_for_user = user_active_map.get(op.id, op.is_active)
+        response_data.append({
+            "id": op.id,
+            "name": op.name,
+            "operator_number": op.operator_number,
+            "is_active": is_active_for_user,
+            "created_at": op.created_at
+        })
+    return response_data
 
 @app.post("/api/operators", response_model=OperatorResponse, status_code=status.HTTP_201_CREATED)
 def create_operator(operator: OperatorCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -285,7 +361,18 @@ def create_operator(operator: OperatorCreate, db: Session = Depends(get_db), cur
     db.add(db_op)
     db.commit()
     db.refresh(db_op)
-    return db_op
+    
+    ua = UserOperatorActive(user_id=current_user.id, operator_id=db_op.id, is_active=operator.is_active)
+    db.add(ua)
+    db.commit()
+    
+    return {
+        "id": db_op.id,
+        "name": db_op.name,
+        "operator_number": db_op.operator_number,
+        "is_active": operator.is_active,
+        "created_at": db_op.created_at
+    }
 
 @app.put("/api/operators/{operator_id}", response_model=OperatorResponse)
 def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -294,10 +381,25 @@ def update_operator(operator_id: int, payload: OperatorCreate, db: Session = Dep
         raise HTTPException(status_code=404, detail="Operario no encontrado.")
     op.name = payload.name
     op.operator_number = payload.operator_number
-    op.is_active = payload.is_active
+    
+    ua = db.query(UserOperatorActive).filter(
+        UserOperatorActive.user_id == current_user.id,
+        UserOperatorActive.operator_id == operator_id
+    ).first()
+    if not ua:
+        ua = UserOperatorActive(user_id=current_user.id, operator_id=operator_id, is_active=payload.is_active)
+        db.add(ua)
+    else:
+        ua.is_active = payload.is_active
     db.commit()
-    db.refresh(op)
-    return op
+    
+    return {
+        "id": op.id,
+        "name": op.name,
+        "operator_number": op.operator_number,
+        "is_active": payload.is_active,
+        "created_at": op.created_at
+    }
 
 @app.delete("/api/operators/{operator_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_operator(operator_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -305,6 +407,7 @@ def delete_operator(operator_id: int, db: Session = Depends(get_db), current_use
     if not op:
         raise HTTPException(status_code=404, detail="Operario no encontrado.")
     db.query(ProductionItem).filter(ProductionItem.operator_id == operator_id).update({ProductionItem.operator_id: None})
+    db.query(UserOperatorActive).filter(UserOperatorActive.operator_id == operator_id).delete()
     db.delete(op)
     db.commit()
     return None
@@ -426,16 +529,22 @@ def delete_machine(machine_id: int, db: Session = Depends(get_db), current_user:
 # --- PARTES DE PRODUCCIÓN DIARIOS (SHIFT SHEETS) ---
 
 @app.get("/api/shift-sheets", response_model=List[ShiftSheetResponse])
-def get_shift_sheets(db: Session = Depends(get_db)):
-    return db.query(ShiftSheet)\
+def get_shift_sheets(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    query = db.query(ShiftSheet)\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.machine))\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.part))\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.operator))\
-        .order_by(ShiftSheet.id.desc()).all()
+        .options(joinedload(ShiftSheet.user))
+        
+    if current_user.role != "supervisor":
+        query = query.filter(ShiftSheet.user_id == current_user.id)
+        
+    return query.order_by(ShiftSheet.id.desc()).all()
 
 @app.post("/api/shift-sheets", response_model=ShiftSheetResponse, status_code=status.HTTP_201_CREATED)
 def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     sheet = ShiftSheet(
+        user_id=current_user.id,
         production_date=payload.production_date,
         shift_name=payload.shift_name,
         supervisor=payload.supervisor,
@@ -502,6 +611,10 @@ def delete_shift_sheet(sheet_id: int, db: Session = Depends(get_db), current_use
     sheet = db.query(ShiftSheet).filter(ShiftSheet.id == sheet_id).first()
     if not sheet:
         raise HTTPException(status_code=404, detail="Parte de producción no encontrado.")
+    
+    if current_user.role != "supervisor" and sheet.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No tienes permisos para eliminar este parte.")
+        
     db.delete(sheet)
     db.commit()
     return None
@@ -509,7 +622,17 @@ def delete_shift_sheet(sheet_id: int, db: Session = Depends(get_db), current_use
 # --- REPLICADOR DE HOJA FÍSICA EN HTML ---
 
 @app.get("/api/shift-sheets/{sheet_id}/html", response_class=HTMLResponse)
-def get_shift_sheet_html(sheet_id: int, db: Session = Depends(get_db)):
+def get_shift_sheet_html(sheet_id: int, token: Optional[str] = None, db: Session = Depends(get_db)):
+    user = None
+    if token:
+        from app.auth import decode_access_token
+        email = decode_access_token(token)
+        if email:
+            user = db.query(User).filter(User.email == email).first()
+            
+    if not user:
+        raise HTTPException(status_code=401, detail="Se requiere token para ver este informe.")
+        
     sheet = db.query(ShiftSheet)\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.machine))\
         .options(joinedload(ShiftSheet.items).joinedload(ProductionItem.part))\
@@ -518,6 +641,9 @@ def get_shift_sheet_html(sheet_id: int, db: Session = Depends(get_db)):
     
     if not sheet:
         raise HTTPException(status_code=404, detail="Parte de producción no encontrado")
+        
+    if user.role != "supervisor" and sheet.user_id != user.id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a este informe de turno.")
 
     planta_items = [i for i in sheet.items if not i.is_montaje]
     montaje_items = [i for i in sheet.items if i.is_montaje]
@@ -636,24 +762,60 @@ def get_summary(db: Session = Depends(get_db)):
 # --- HISTORIAL SEMANAL Y CUADRANTES ---
 
 @app.get("/api/weekly-history/current")
-def get_current_weekly_history(db: Session = Depends(get_db)):
+def get_current_weekly_history(
+    user_id: Optional[int] = None, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "supervisor":
+        user_id = current_user.id
+        
     from datetime import date, timedelta
     today = date.today()
     current_monday = today - timedelta(days=today.weekday())
-    return compile_weekly_history(current_monday, db)
+    return compile_weekly_history(current_monday, db, user_id=user_id)
 
 @app.post("/api/weekly-snapshots/trigger")
-def trigger_weekly_snapshots(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    generate_past_week_snapshots(db)
+def trigger_weekly_snapshots(
+    user_id: Optional[int] = None, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "supervisor":
+        user_id = current_user.id
+        
+    if current_user.role == "supervisor" and user_id is None:
+        users = db.query(User).filter(User.role == "encargado").all()
+        for u in users:
+            generate_past_week_snapshots(db, user_id=u.id)
+    else:
+        if user_id is not None:
+            generate_past_week_snapshots(db, user_id=user_id)
+            
     return {"status": "success", "message": "Comprobación de instantáneas completada."}
 
 @app.get("/api/weekly-snapshots", response_model=List[WeeklySnapshotResponse])
-def get_weekly_snapshots(db: Session = Depends(get_db)):
-    return db.query(WeeklySnapshot).order_by(WeeklySnapshot.week_start_date.desc()).all()
+def get_weekly_snapshots(
+    user_id: Optional[int] = None, 
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.role != "supervisor":
+        user_id = current_user.id
+        
+    query = db.query(WeeklySnapshot).options(joinedload(WeeklySnapshot.user))
+    if user_id is not None:
+        query = query.filter(WeeklySnapshot.user_id == user_id)
+        
+    return query.order_by(WeeklySnapshot.week_start_date.desc()).all()
 
 @app.get("/api/weekly-snapshots/{snapshot_id}", response_model=WeeklySnapshotResponse)
-def get_weekly_snapshot(snapshot_id: int, db: Session = Depends(get_db)):
-    snapshot = db.query(WeeklySnapshot).filter(WeeklySnapshot.id == snapshot_id).first()
+def get_weekly_snapshot(snapshot_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    snapshot = db.query(WeeklySnapshot).options(joinedload(WeeklySnapshot.user)).filter(WeeklySnapshot.id == snapshot_id).first()
     if not snapshot:
         raise HTTPException(status_code=404, detail="Instantánea semanal no encontrada.")
+        
+    if current_user.role != "supervisor" and snapshot.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No tienes acceso a esta instantánea semanal.")
+        
     return snapshot
