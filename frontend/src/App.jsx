@@ -93,9 +93,9 @@ export function generateReportHtml(sheet) {
   <body>
       <div class="paper">
           <div class="header-grid">
-              <div>DIA / FECHA: <span style="font-weight: normal;">{sheet.production_date}</span></div>
-              <div>TURNO: <span style="font-weight: normal;">{sheet.shift_name}</span></div>
-              <div>ENCARGADO: <span style="font-weight: normal;">{sheet.supervisor}</span></div>
+              <div>DIA / FECHA: <span style="font-weight: normal;">${sheet.production_date}</span></div>
+              <div>TURNO: <span style="font-weight: normal;">${sheet.shift_name}</span></div>
+              <div>ENCARGADO: <span style="font-weight: normal;">${sheet.supervisor}</span></div>
           </div>
 
           <div class="section-title">PRODUCCIÓN MÁQUINAS EN PLANTA</div>
