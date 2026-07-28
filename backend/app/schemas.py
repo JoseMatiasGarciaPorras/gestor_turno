@@ -82,6 +82,7 @@ class MachineBase(BaseModel):
     category: Optional[str] = "General"
     location: Optional[str] = None
     is_small: Optional[bool] = False
+    assigned_part_id: Optional[int] = None
 
 class MachineCreate(MachineBase):
     status: Optional[str] = "disponible"
@@ -93,6 +94,7 @@ class MachineResponse(MachineBase):
     id: int
     status: str
     created_at: datetime
+    assigned_part: Optional[PartResponse] = None
 
     class Config:
         from_attributes = True

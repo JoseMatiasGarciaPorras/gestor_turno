@@ -39,8 +39,9 @@ const API_BASE_URL = getApiBaseUrl();
 
 export function generateReportHtml(sheet) {
   const items = sheet.items || [];
-  const plantaItems = items.filter(i => !i.is_montaje);
+  const plantaItems = items.filter(i => !i.is_montaje && i.machine_name_manual !== 'REVISION');
   const montajeItems = items.filter(i => i.is_montaje);
+  const revisionItems = items.filter(i => i.machine_name_manual === 'REVISION');
 
   const renderRow = (item) => {
     const macName = (item.machine && item.machine.name) ? item.machine.name : (item.machine_name_manual || '-');
@@ -69,6 +70,7 @@ export function generateReportHtml(sheet) {
 
   const plantaRowsHtml = plantaItems.map(renderRow).join('');
   const montajeRowsHtml = montajeItems.map(renderRow).join('');
+  const revisionRowsHtml = revisionItems.map(renderRow).join('');
 
   return `
   <!DOCTYPE html>
@@ -91,9 +93,9 @@ export function generateReportHtml(sheet) {
   <body>
       <div class="paper">
           <div class="header-grid">
-              <div>DIA / FECHA: <span style="font-weight: normal;">${sheet.production_date}</span></div>
-              <div>TURNO: <span style="font-weight: normal;">${sheet.shift_name}</span></div>
-              <div>ENCARGADO: <span style="font-weight: normal;">${sheet.supervisor}</span></div>
+              <div>DIA / FECHA: <span style="font-weight: normal;">{sheet.production_date}</span></div>
+              <div>TURNO: <span style="font-weight: normal;">{sheet.shift_name}</span></div>
+              <div>ENCARGADO: <span style="font-weight: normal;">{sheet.supervisor}</span></div>
           </div>
 
           <div class="section-title">PRODUCCIÓN MÁQUINAS EN PLANTA</div>
@@ -130,6 +132,26 @@ export function generateReportHtml(sheet) {
               </thead>
               <tbody>
                   ${montajeRowsHtml}
+              </tbody>
+          </table>
+          ` : ''}
+
+          ${revisionRowsHtml ? `
+          <div class="section-title">REVISIÓN CSL1</div>
+          <table>
+              <thead>
+                  <tr>
+                      <th style="width: 20%;">PIEZA / REF</th>
+                      <th style="width: 8%;">LADO</th>
+                      <th style="width: 25%;">REFERENCIA</th>
+                      <th style="width: 10%;">PROD OK</th>
+                      <th style="width: 10%;">PROD KO</th>
+                      <th style="width: 10%;">Nº OP</th>
+                      <th style="width: 17%;">OPERARIO</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${revisionRowsHtml}
               </tbody>
           </table>
           ` : ''}
@@ -724,6 +746,8 @@ export default function App() {
           currentSheet={currentSheet}
           onSaveSheet={handleSaveSheet}
           onOpenHtmlReport={handleOpenHtmlReport}
+          onUpdateMachine={handleUpdateMachine}
+          currentUser={currentUser}
         />
       )}
 

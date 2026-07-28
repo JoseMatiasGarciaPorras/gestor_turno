@@ -26,6 +26,9 @@ class Machine(Base):
     is_small = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    assigned_part_id = Column(Integer, ForeignKey("parts.id", ondelete="SET NULL"), nullable=True)
+
+    assigned_part = relationship("Part")
     production_items = relationship("ProductionItem", back_populates="machine")
 
 class Part(Base):

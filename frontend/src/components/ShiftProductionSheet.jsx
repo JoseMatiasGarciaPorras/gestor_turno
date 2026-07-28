@@ -68,7 +68,7 @@ export function getNormalizedReferences(part) {
 }
 
 export default function ShiftProductionSheet({ 
-  machines = [], operators = [], parts = [], currentSheet, onSaveSheet, onOpenHtmlReport 
+  machines = [], operators = [], parts = [], currentSheet, onSaveSheet, onOpenHtmlReport, onUpdateMachine, currentUser
 }) {
   const printSheetRef = useRef(null);
   const initialDraftRef = useRef(loadSavedDraft());
@@ -79,7 +79,11 @@ export default function ShiftProductionSheet({
     initialDraft?.productionDate || getLocalDateString()
   );
   const [shiftName, setShiftName] = useState(initialDraft?.shiftName || 'Tarde');
-  const [supervisor, setSupervisor] = useState(initialDraft?.supervisor || 'Matias');
+  const [supervisor, setSupervisor] = useState(
+    currentUser 
+      ? (currentUser.full_name || currentUser.email)
+      : (initialDraft?.supervisor || 'Matias')
+  );
   const [incidentsNotes, setIncidentsNotes] = useState(
     initialDraft?.incidentsNotes !== undefined ? initialDraft.incidentsNotes : 'Operación en planta sin novedades.'
   );
@@ -90,7 +94,7 @@ export default function ShiftProductionSheet({
   const [activeSearchRowId, setActiveSearchRowId] = useState(null);
 
   // Active modal editor row ID
-  const [editingEntry, setEditingEntry] = useState(null); // { type: 'machine' | 'montaje', id: number }
+  const [editingEntry, setEditingEntry] = useState(null); // { type: 'machine' | 'montaje' | 'revision', id: number }
 
   // Machine entries (restored from draft or clean default)
   const [machineEntries, setMachineEntries] = useState(
@@ -102,37 +106,67 @@ export default function ShiftProductionSheet({
     initialDraft?.montajeEntries || []
   );
 
-  // If no saved draft exists and machineEntries is empty, populate cleanly when machines are loaded
+  // Revision entries (restored from draft or clean default)
+  const [revisionEntries, setRevisionEntries] = useState(
+    initialDraft?.revisionEntries || []
+  );
+
+  // Sincronizar el encargado con el usuario de la sesión actual
   useEffect(() => {
-    if (machineEntries.length === 0 && !initialDraft && machines.length > 0) {
-      const activeMacs = machines.filter(m => m.status === 'en_uso').slice(0, 4);
-      const targetMacs = activeMacs.length > 0 ? activeMacs : machines.slice(0, 3);
-      
-      const cleanEntries = targetMacs.map((mac, idx) => {
-        const matchedPart = parts[idx % parts.length] || null;
-        const normRefs = getNormalizedReferences(matchedPart);
-        const subRefs = normRefs.length > 0
-          ? normRefs.map((r, rIdx) => ({ id: Date.now() + idx * 10 + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-          : [{ id: Date.now() + idx, code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-
-        const activeOps = operators.filter(o => o.is_active !== false);
-        const targetOps = activeOps.length > 0 ? activeOps : operators;
-        const matchedOp = targetOps[idx % targetOps.length] || null;
-
-        return {
-          id: Date.now() + idx,
-          machine_name: mac.name,
-          part_name: matchedPart ? matchedPart.name : '',
-          operator_name: matchedOp ? matchedOp.name : '',
-          operator_number: matchedOp ? matchedOp.operator_number : '',
-          is_montaje: false,
-          references: subRefs
-        };
-      });
-
-      setMachineEntries(cleanEntries);
+    if (currentUser) {
+      const currentName = currentUser.full_name || currentUser.email;
+      if (currentName && supervisor !== currentName) {
+        setSupervisor(currentName);
+      }
     }
-  }, [machines, parts, operators]);
+  }, [currentUser]);
+
+  // Sincronizar machineEntries con el estado machines de la base de datos
+  useEffect(() => {
+    if (machines.length > 0) {
+      const activeMacs = machines.filter(m => m.status === 'en_uso');
+      
+      setMachineEntries(prevEntries => {
+        const newEntries = activeMacs.map(mac => {
+          const existing = prevEntries.find(e => e.id === mac.id || e.machine_name === mac.name);
+          const assignedPartName = mac.assigned_part?.name || '';
+          
+          if (existing) {
+            if (existing.part_name !== assignedPartName) {
+              const normRefs = getNormalizedReferences(mac.assigned_part);
+              const newSubRefs = normRefs.length > 0 
+                ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+                : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+              return {
+                ...existing,
+                id: mac.id,
+                part_name: assignedPartName,
+                references: newSubRefs
+              };
+            }
+            return { ...existing, id: mac.id };
+          } else {
+            const assignedPart = mac.assigned_part;
+            const normRefs = getNormalizedReferences(assignedPart);
+            const subRefs = normRefs.length > 0
+              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+              : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+            
+            return {
+              id: mac.id,
+              machine_name: mac.name,
+              part_name: assignedPartName,
+              operator_name: '',
+              operator_number: '',
+              is_montaje: false,
+              references: subRefs
+            };
+          }
+        });
+        return newEntries;
+      });
+    }
+  }, [machines]);
 
   // Persistir el borrador automáticamente ante cualquier cambio
   useEffect(() => {
@@ -142,14 +176,15 @@ export default function ShiftProductionSheet({
       supervisor,
       incidentsNotes,
       machineEntries,
-      montajeEntries
+      montajeEntries,
+      revisionEntries
     };
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
     } catch (e) {
       console.error("Error guardando borrador local:", e);
     }
-  }, [productionDate, shiftName, supervisor, incidentsNotes, machineEntries, montajeEntries]);
+  }, [productionDate, shiftName, supervisor, incidentsNotes, machineEntries, montajeEntries, revisionEntries]);
 
   // Desasignar operario si una máquina deja de pertenecer al grupo de Máquinas Pequeñas
   const prevMachinesRef = useRef(machines);
@@ -190,60 +225,50 @@ export default function ShiftProductionSheet({
       references: m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 }))
     })));
     setMontajeEntries(prev => prev.map(m => ({ ...m, quantity_ok: 0, quantity_ko: 0, is_csl1: false })));
+    setRevisionEntries(prev => prev.map(m => ({ ...m, references: m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 })) })));
     setShowConfirmReset(false);
   };
 
   // Añadir nueva Máquina
   const addMachineEntry = () => {
-    const defaultMac = machines[0]?.name || 'ENGEL 300';
-    const defaultPart = parts[0] || { name: 'Pieza General', references_list: [{ code: '90100108', side_type: 'Única' }] };
+    // Buscar una máquina que no esté ya activa
+    const activeNames = machineEntries.map(e => e.machine_name);
+    const availableMac = machines.find(m => m.status !== 'en_uso' && !activeNames.includes(m.name)) || 
+                         machines.find(m => !activeNames.includes(m.name)) || 
+                         machines[0];
     
-    // Si la máquina por defecto es pequeña, heredar el operario de otra máquina pequeña si existe
-    const defaultMacDetails = machines.find(mac => mac.name === defaultMac);
-    const isDefaultSmall = defaultMacDetails ? !!defaultMacDetails.is_small : false;
-    let defaultOpName = '';
-    let defaultOpNumber = '';
+    if (!availableMac) return;
 
-    if (isDefaultSmall) {
-      const existingSmallEntry = machineEntries.find(m => {
-        const details = machines.find(mac => mac.name === m.machine_name);
-        return details && details.is_small && m.operator_name;
-      });
-      if (existingSmallEntry) {
-        defaultOpName = existingSmallEntry.operator_name;
-        defaultOpNumber = existingSmallEntry.operator_number;
-      }
-    }
+    const defaultPart = parts[0];
 
-    if (!defaultOpName) {
-      const activeOps = operators.filter(o => o.is_active !== false);
-      const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
-      defaultOpName = defaultOp.name;
-      defaultOpNumber = defaultOp.operator_number;
-    }
+    // Marcar en uso en la base de datos
+    onUpdateMachine(availableMac.id, {
+      name: availableMac.name,
+      machine_number: availableMac.machine_number,
+      category: availableMac.category,
+      location: availableMac.location,
+      is_small: availableMac.is_small,
+      status: 'en_uso',
+      assigned_part_id: defaultPart ? defaultPart.id : null
+    });
 
-    const normRefs = getNormalizedReferences(defaultPart);
-    const initialSubRefs = normRefs.length > 0 
-      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-      : [{ id: Date.now(), code: '90100108', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-
-    const newId = Date.now();
-    const newEntry = {
-      id: newId,
-      machine_name: defaultMac,
-      part_name: defaultPart.name,
-      operator_name: defaultOpName,
-      operator_number: defaultOpNumber,
-      is_montaje: false,
-      references: initialSubRefs
-    };
-
-    setMachineEntries([...machineEntries, newEntry]);
-    setEditingEntry({ type: 'machine', id: newId });
+    setEditingEntry({ type: 'machine', id: availableMac.id });
   };
 
   const removeMachineEntry = (id) => {
-    setMachineEntries(machineEntries.filter(m => m.id !== id));
+    const mac = machines.find(m => m.id === id);
+    if (mac) {
+      onUpdateMachine(id, {
+        name: mac.name,
+        machine_number: mac.machine_number,
+        category: mac.category,
+        location: mac.location,
+        is_small: mac.is_small,
+        status: 'disponible',
+        assigned_part_id: null
+      });
+    }
+    setMachineEntries(prev => prev.filter(m => m.id !== id));
   };
 
   const updateMachineField = (id, field, value) => {
@@ -272,27 +297,36 @@ export default function ShiftProductionSheet({
         return m;
       }));
     } else if (field === 'machine_name') {
+      const oldMac = machines.find(m => m.id === id);
       const targetMacDetails = machines.find(mac => mac.name === value);
-      const isTargetSmall = targetMacDetails ? !!targetMacDetails.is_small : false;
+      
+      if (oldMac && targetMacDetails) {
+        const currentPart = parts.find(p => p.name === entryToUpdate.part_name);
+        
+        // Liberar la máquina anterior
+        onUpdateMachine(oldMac.id, {
+          name: oldMac.name,
+          machine_number: oldMac.machine_number,
+          category: oldMac.category,
+          location: oldMac.location,
+          is_small: oldMac.is_small,
+          status: 'disponible',
+          assigned_part_id: null
+        });
 
-      setMachineEntries(prev => prev.map(m => {
-        if (m.id === id) {
-          const updated = { ...m, machine_name: value };
-          // Si cambiamos a una máquina pequeña, heredar el operario de otra máquina pequeña si existe
-          if (isTargetSmall) {
-            const existingSmallEntry = prev.find(entry => {
-              const details = machines.find(mac => mac.name === entry.machine_name);
-              return entry.id !== id && details && details.is_small && entry.operator_name;
-            });
-            if (existingSmallEntry) {
-              updated.operator_name = existingSmallEntry.operator_name;
-              updated.operator_number = existingSmallEntry.operator_number;
-            }
-          }
-          return updated;
-        }
-        return m;
-      }));
+        // Ocupar la nueva máquina
+        onUpdateMachine(targetMacDetails.id, {
+          name: targetMacDetails.name,
+          machine_number: targetMacDetails.machine_number,
+          category: targetMacDetails.category,
+          location: targetMacDetails.location,
+          is_small: targetMacDetails.is_small,
+          status: 'en_uso',
+          assigned_part_id: currentPart ? currentPart.id : null
+        });
+
+        setEditingEntry({ type: 'machine', id: targetMacDetails.id });
+      }
     } else {
       setMachineEntries(prev => prev.map(m => (m.id === id ? { ...m, [field]: value } : m)));
     }
@@ -304,6 +338,19 @@ export default function ShiftProductionSheet({
     const newSubRefs = normRefs.length > 0 
       ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
       : [{ id: Date.now(), code: 'REF-MANUAL', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+    const mac = machines.find(m => m.id === machineId);
+    if (mac) {
+      onUpdateMachine(machineId, {
+        name: mac.name,
+        machine_number: mac.machine_number,
+        category: mac.category,
+        location: mac.location,
+        is_small: mac.is_small,
+        status: 'en_uso',
+        assigned_part_id: selectedPart.id
+      });
+    }
 
     setMachineEntries(machineEntries.map(m => {
       if (m.id === machineId) {
@@ -445,6 +492,103 @@ export default function ShiftProductionSheet({
     }));
   };
 
+  // Revision Handlers
+  const addRevisionEntry = () => {
+    const activeOps = operators.filter(o => o.is_active !== false);
+    const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
+    
+    // Cualquiera de las piezas de la lista (primera pieza)
+    const defaultPart = parts[0] || { name: 'Pieza Revisión', references_list: [{ code: 'REF-REVISION', side_type: 'Única' }] };
+    
+    const normRefs = getNormalizedReferences(defaultPart);
+    const initialSubRefs = normRefs.length > 0 
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+    const newId = Date.now();
+    setRevisionEntries([
+      ...revisionEntries,
+      {
+        id: newId,
+        part_name: defaultPart.name,
+        operator_name: defaultOp.name,
+        operator_number: defaultOp.operator_number,
+        is_montaje: false,
+        is_revision: true,
+        is_csl1: true,
+        references: initialSubRefs
+      }
+    ]);
+    setEditingEntry({ type: 'revision', id: newId });
+  };
+
+  const removeRevisionEntry = (id) => {
+    setRevisionEntries(revisionEntries.filter(m => m.id !== id));
+  };
+
+  const updateRevisionField = (id, field, value) => {
+    setRevisionEntries(prev => prev.map(m => {
+      if (m.id === id) {
+        const updated = { ...m, [field]: value };
+        if (field === 'operator_name') {
+          const matchedOp = operators.find(o => o.name === value);
+          updated.operator_number = matchedOp ? matchedOp.operator_number : '';
+        }
+        return updated;
+      }
+      return m;
+    }));
+  };
+
+  const selectPartForRevision = (entryId, selectedPart) => {
+    const normRefs = getNormalizedReferences(selectedPart);
+    const newSubRefs = normRefs.length > 0 
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now(), code: 'REF-MANUAL', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+
+    setRevisionEntries(revisionEntries.map(m => {
+      if (m.id === entryId) {
+        return {
+          ...m,
+          part_name: selectedPart.name,
+          references: newSubRefs
+        };
+      }
+      return m;
+    }));
+    setActiveSearchRowId(null);
+  };
+
+  const updateRevisionSubRefQty = (entryId, subRefId, field, value) => {
+    setRevisionEntries(revisionEntries.map(m => {
+      if (m.id === entryId) {
+        return {
+          ...m,
+          references: m.references.map(r => {
+            if (r.id === subRefId) {
+              return { ...r, [field]: value };
+            }
+            return r;
+          })
+        };
+      }
+      return m;
+    }));
+  };
+
+  const removeRevisionSubReference = (entryId, subRefId) => {
+    setRevisionEntries(revisionEntries.map(m => {
+      if (m.id === entryId) {
+        if (m.references.length <= 1) return m;
+        return {
+          ...m,
+          references: m.references.filter(r => r.id !== subRefId)
+        };
+      }
+      return m;
+    }));
+  };
+
   // Calcular métricas totales acumuladas del turno
   let totalOk = 0;
   let totalKo = 0;
@@ -465,6 +609,15 @@ export default function ShiftProductionSheet({
     } else {
       totalOk += parseInt(m.quantity_ok || 0);
       totalKo += parseInt(m.quantity_ko || 0);
+    }
+  });
+
+  revisionEntries.forEach(m => {
+    if (Array.isArray(m.references)) {
+      m.references.forEach(r => {
+        totalOk += parseInt(r.quantity_ok || 0);
+        totalKo += parseInt(r.quantity_ko || 0);
+      });
     }
   });
 
@@ -642,6 +795,32 @@ ${incidentsNotes || 'Ninguna.'}`;
       }
     });
 
+    revisionEntries.forEach(m => {
+      const operatorObj = operators.find(op => op.name === m.operator_name);
+      const operatorId = operatorObj ? operatorObj.id : null;
+
+      const partObj = parts.find(p => p.name === m.part_name);
+      const partId = partObj ? partObj.id : null;
+
+      if (Array.isArray(m.references)) {
+        m.references.forEach(r => {
+          flatItems.push({
+            machine_name_manual: 'REVISION',
+            machine_side: r.side_type || 'Única',
+            part_id: partId,
+            part_reference_manual: r.code,
+            quantity_ok: parseInt(r.quantity_ok || 0),
+            quantity_ko: parseInt(r.quantity_ko || 0),
+            operator_id: operatorId,
+            operator_number_manual: m.operator_number,
+            operator_name_manual: m.operator_name,
+            is_montaje: false,
+            is_csl1: true
+          });
+        });
+      }
+    });
+
     const payload = {
       production_date: productionDate,
       shift_name: shiftName,
@@ -665,9 +844,13 @@ ${incidentsNotes || 'Ninguna.'}`;
   const renderEntryEditorModal = () => {
     if (!editingEntry) return null;
     const isMachine = editingEntry.type === 'machine';
+    const isRevision = editingEntry.type === 'revision';
+    
     const m = isMachine 
       ? machineEntries.find(e => e.id === editingEntry.id)
-      : montajeEntries.find(e => e.id === editingEntry.id);
+      : (isRevision 
+         ? revisionEntries.find(e => e.id === editingEntry.id)
+         : montajeEntries.find(e => e.id === editingEntry.id));
       
     if (!m) return null;
 
@@ -677,11 +860,13 @@ ${incidentsNotes || 'Ninguna.'}`;
           
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', fontWeight: 'bold', color: isMachine ? '#60a5fa' : '#a78bfa', margin: 0 }}>
-              {isMachine ? <Cpu size={20} /> : <Package size={20} />}
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.1rem', fontWeight: 'bold', color: isMachine ? '#60a5fa' : (isRevision ? '#06b6d4' : '#a78bfa'), margin: 0 }}>
+              {isMachine ? <Cpu size={20} /> : (isRevision ? <CheckCircle size={20} /> : <Package size={20} />)}
               {isMachine 
                 ? `Editar Asignación - ${m.machine_name || 'Máquina'}`
-                : `Editar Asignación - Montaje: ${m.part_name || 'Pieza'}`
+                : (isRevision 
+                   ? `Editar Asignación - Revisión CSL1: ${m.part_name || 'Pieza'}`
+                   : `Editar Asignación - Montaje: ${m.part_name || 'Pieza'}`)
               }
             </h3>
             <button style={{ background: 'none', border: 'none', color: '#f43f5e', fontSize: '1.2rem', cursor: 'pointer', padding: 0 }} onClick={() => setEditingEntry(null)}>✕</button>
@@ -744,14 +929,20 @@ ${incidentsNotes || 'Ninguna.'}`;
                 </div>
               </div>
             ) : (
-              /* OPERARIO DE MONTAJE */
+              /* OPERARIO DE MONTAJE/REVISION */
               <div>
-                <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO MONTAJE</label>
+                <label className="form-label" style={{ fontSize: '0.7rem' }}>OPERARIO {isRevision ? 'REVISIÓN' : 'MONTAJE'}</label>
                 <select 
                   className="form-select" 
                   style={{ minHeight: '40px' }}
                   value={m.operator_name}
-                  onChange={(e) => updateMontajeField(m.id, 'operator_name', e.target.value)}
+                  onChange={(e) => {
+                    if (isRevision) {
+                      updateRevisionField(m.id, 'operator_name', e.target.value);
+                    } else {
+                      updateMontajeField(m.id, 'operator_name', e.target.value);
+                    }
+                  }}
                 >
                   {(() => {
                     const activeOps = operators.filter(op => op.is_active !== false);
@@ -773,21 +964,23 @@ ${incidentsNotes || 'Ninguna.'}`;
             {/* 2. Selector Autocompletado de Pieza */}
             <div style={{ position: 'relative', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
               <label className="form-label" style={{ fontSize: '0.72rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontWeight: 'bold', color: isMachine ? '#60a5fa' : '#a78bfa' }}>PIEZA ASIGNADA</span>
-                <span style={{ fontStyle: 'italic', color: isMachine ? '#93c5fd' : '#c084fc' }}>{m.part_name}</span>
+                <span style={{ fontWeight: 'bold', color: isMachine ? '#60a5fa' : (isRevision ? '#06b6d4' : '#a78bfa') }}>PIEZA ASIGNADA</span>
+                <span style={{ fontStyle: 'italic', color: isMachine ? '#93c5fd' : (isRevision ? '#22d3ee' : '#c084fc') }}>{m.part_name}</span>
               </label>
 
               <div style={{ position: 'relative' }}>
                 <input 
                   type="text" 
                   className="form-input"
-                  style={{ minHeight: '42px', fontWeight: 'bold', color: isMachine ? '#60a5fa' : '#a78bfa', paddingRight: '32px' }}
+                  style={{ minHeight: '42px', fontWeight: 'bold', color: isMachine ? '#60a5fa' : (isRevision ? '#06b6d4' : '#a78bfa'), paddingRight: '32px' }}
                   placeholder="Escribe el nombre de la pieza (ej. Espejo, Moldura)..."
                   value={m.part_name}
                   onFocus={() => setActiveSearchRowId(m.id)}
                   onChange={(e) => {
                     if (isMachine) {
                       updateMachineField(m.id, 'part_name', e.target.value);
+                    } else if (isRevision) {
+                      updateRevisionField(m.id, 'part_name', e.target.value);
                     } else {
                       updateMontajeField(m.id, 'part_name', e.target.value);
                     }
@@ -801,11 +994,17 @@ ${incidentsNotes || 'Ninguna.'}`;
               {activeSearchRowId === m.id && (() => {
                 const filteredParts = isMachine 
                   ? parts.filter(p => !p.is_montaje && p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()))
-                  : parts.filter(p => p.is_montaje && p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()));
+                  : (isRevision 
+                     ? parts.filter(p => p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase()))
+                     : parts.filter(p => p.is_montaje && p.name.toLowerCase().includes(String(m.part_name || '').toLowerCase())));
 
                 const listToRender = filteredParts.length > 0
                   ? filteredParts
-                  : (isMachine ? parts.filter(p => !p.is_montaje) : parts.filter(p => p.is_montaje));
+                  : (isMachine 
+                     ? parts.filter(p => !p.is_montaje) 
+                     : (isRevision 
+                        ? parts 
+                        : parts.filter(p => p.is_montaje)));
 
                 return (
                   <div style={{ 
@@ -815,7 +1014,7 @@ ${incidentsNotes || 'Ninguna.'}`;
                     right: 0, 
                     zIndex: 99, 
                     background: '#151d33', 
-                    border: `1px solid ${isMachine ? '#3b82f6' : '#a78bfa'}`, 
+                    border: `1px solid ${isMachine ? '#3b82f6' : (isRevision ? '#06b6d4' : '#a78bfa')}`, 
                     borderRadius: 'var(--radius-md)', 
                     maxHeight: '180px', 
                     overflowY: 'auto',
@@ -829,14 +1028,16 @@ ${incidentsNotes || 'Ninguna.'}`;
 
                     {listToRender.length > 0 ? (
                       listToRender.slice(0, 10).map((p, pIdx) => {
-                        const normRefs = getNormalizedReferences(p);
-                        return (
+                         const normRefs = getNormalizedReferences(p);
+                         return (
                           <div 
                             key={pIdx}
                             style={{ padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
                             onMouseDown={() => {
                               if (isMachine) {
                                 selectPartForMachine(m.id, p);
+                              } else if (isRevision) {
+                                selectPartForRevision(m.id, p);
                               } else {
                                 selectPartForMontaje(m.id, p);
                               }
@@ -845,7 +1046,7 @@ ${incidentsNotes || 'Ninguna.'}`;
                             <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#ffffff' }}>{p.name}</div>
                             <div style={{ display: 'flex', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
                               {normRefs.map((r, rIdx) => (
-                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#c084fc', background: 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
+                                <span key={rIdx} style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: isRevision ? '#22d3ee' : '#c084fc', background: isRevision ? 'rgba(6, 182, 212, 0.15)' : 'rgba(168, 85, 247, 0.15)', padding: '1px 6px', borderRadius: '8px' }}>
                                   {r.code} ({r.side_type})
                                 </span>
                               ))}
@@ -866,7 +1067,7 @@ ${incidentsNotes || 'Ninguna.'}`;
             {/* 3. Sub-bloques de Referencias */}
             <div style={{ background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: 'var(--radius-md)', border: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 'bold', color: isRevision ? '#06b6d4' : '#c084fc', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Tag size={14} /> REFERENCIAS DE LA PIEZA ({(m.references || []).length})
                 </span>
               </div>
@@ -892,11 +1093,13 @@ ${incidentsNotes || 'Ninguna.'}`;
                           <input 
                             type="text" 
                             className="form-input" 
-                            style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: '#c084fc', fontSize: '0.9rem' }}
+                            style={{ flex: 1, minHeight: '34px', fontFamily: 'monospace', fontWeight: 'bold', color: isRevision ? '#22d3ee' : '#c084fc', fontSize: '0.9rem' }}
                             value={r.code}
                             onChange={(e) => {
                               if (isMachine) {
                                 updateSubRefQty(m.id, r.id, 'code', e.target.value);
+                              } else if (isRevision) {
+                                updateRevisionSubRefQty(m.id, r.id, 'code', e.target.value);
                               } else {
                                 updateMontajeSubRefQty(m.id, r.id, 'code', e.target.value);
                               }
@@ -909,6 +1112,8 @@ ${incidentsNotes || 'Ninguna.'}`;
                           <button type="button" className="btn btn-danger" style={{ minHeight: '32px', padding: '0 8px' }} onClick={() => {
                             if (isMachine) {
                               removeSubReference(m.id, r.id);
+                            } else if (isRevision) {
+                              removeRevisionSubReference(m.id, r.id);
                             } else {
                               removeMontajeSubReference(m.id, r.id);
                             }
@@ -932,6 +1137,8 @@ ${incidentsNotes || 'Ninguna.'}`;
                             onChange={(e) => {
                               if (isMachine) {
                                 updateSubRefQty(m.id, r.id, 'quantity_ok', e.target.value);
+                              } else if (isRevision) {
+                                updateRevisionSubRefQty(m.id, r.id, 'quantity_ok', e.target.value);
                               } else {
                                 updateMontajeSubRefQty(m.id, r.id, 'quantity_ok', e.target.value);
                               }
@@ -951,6 +1158,8 @@ ${incidentsNotes || 'Ninguna.'}`;
                             onChange={(e) => {
                               if (isMachine) {
                                 updateSubRefQty(m.id, r.id, 'quantity_ko', e.target.value);
+                              } else if (isRevision) {
+                                updateRevisionSubRefQty(m.id, r.id, 'quantity_ko', e.target.value);
                               } else {
                                 updateMontajeSubRefQty(m.id, r.id, 'quantity_ko', e.target.value);
                               }
@@ -964,14 +1173,21 @@ ${incidentsNotes || 'Ninguna.'}`;
               </div>
             </div>
 
-            {/* 4. CSL1 (Solo para montaje) */}
+            {/* 4. CSL1 (Solo para montaje/revision) */}
             {!isMachine && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                 <input 
                   type="checkbox" 
                   id={`modal-csl1-${m.id}`} 
                   checked={!!m.is_csl1} 
-                  onChange={(e) => updateMontajeField(m.id, 'is_csl1', e.target.checked)} 
+                  disabled={isRevision} // For revision, CSL1 is always true/forced
+                  onChange={(e) => {
+                    if (isRevision) {
+                      updateRevisionField(m.id, 'is_csl1', e.target.checked);
+                    } else {
+                      updateMontajeField(m.id, 'is_csl1', e.target.checked);
+                    }
+                  }} 
                   style={{ width: '16px', height: '16px', cursor: 'pointer' }}
                 />
                 <label htmlFor={`modal-csl1-${m.id}`} style={{ fontSize: '0.78rem', color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -988,6 +1204,8 @@ ${incidentsNotes || 'Ninguna.'}`;
             <button className="btn btn-danger" style={{ minHeight: '38px', padding: '0 14px', fontSize: '0.85rem' }} onClick={() => {
               if (isMachine) {
                 removeMachineEntry(m.id);
+              } else if (isRevision) {
+                removeRevisionEntry(m.id);
               } else {
                 removeMontajeEntry(m.id);
               }
@@ -1068,7 +1286,20 @@ ${incidentsNotes || 'Ninguna.'}`;
 
           <div>
             <label className="form-label">ENCARGADO</label>
-            <input type="text" className="form-input" placeholder="Ej. Matias" value={supervisor} onChange={(e) => setSupervisor(e.target.value)} required />
+            <select 
+              className="form-select" 
+              value={supervisor} 
+              onChange={(e) => setSupervisor(e.target.value)}
+              required
+            >
+              {currentUser ? (
+                <option value={currentUser.full_name || currentUser.email}>
+                  {currentUser.full_name || currentUser.email}
+                </option>
+              ) : (
+                <option value={supervisor}>{supervisor}</option>
+              )}
+            </select>
           </div>
         </div>
 
@@ -1247,6 +1478,85 @@ ${incidentsNotes || 'Ninguna.'}`;
         })}
       </div>
 
+      {/* REVISIÓN CSL1 */}
+      <div className="section-header">
+        <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <CheckCircle size={18} color="#06b6d4" /> REVISIÓN CSL1 ({revisionEntries.length})
+        </h3>
+        <button className="btn btn-secondary" style={{ minHeight: '34px', padding: '4px 10px', fontSize: '0.78rem' }} onClick={addRevisionEntry}>
+          <Plus size={14} /> Añadir a Revisión
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '12px', marginBottom: '30px' }}>
+        {revisionEntries.map((m) => {
+          let mOk = 0;
+          let mKo = 0;
+          if (m.references) {
+            m.references.forEach(r => {
+              mOk += parseInt(r.quantity_ok || 0);
+              mKo += parseInt(r.quantity_ko || 0);
+            });
+          }
+
+          return (
+            <div 
+              key={m.id} 
+              className="history-card" 
+              onClick={() => setEditingEntry({ type: 'revision', id: m.id })}
+              style={{ 
+                flexDirection: 'column', 
+                alignItems: 'stretch', 
+                padding: '12px 14px', 
+                borderRadius: 'var(--radius-lg)', 
+                background: 'var(--bg-card)', 
+                border: '1px solid rgba(6, 182, 212, 0.3)', 
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.7)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.3)';
+                e.currentTarget.style.transform = 'none';
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 'bold', color: '#06b6d4', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '6px', maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.part_name}>
+                  <CheckCircle size={16} /> {m.part_name || 'Pieza Revisión'}
+                </span>
+                <span style={{ fontSize: '0.72rem', background: 'rgba(6, 182, 212, 0.15)', color: '#06b6d4', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                  Revisión
+                </span>
+              </div>
+
+              <div style={{ fontSize: '0.8rem', color: '#cbd5e1', marginTop: '6px', fontWeight: '500' }}>
+                👤 {m.operator_name || 'Sin Operario'}
+              </div>
+
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                🏷️ {m.references && m.references.length > 0 ? `${m.references.length} ref(s)` : '0 refs'}
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px', borderTop: '1px solid var(--border-color)', paddingTop: '8px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                <span style={{ color: '#10b981', background: 'rgba(16, 185, 129, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  OK: {mOk}
+                </span>
+                <span style={{ color: '#f43f5e', background: 'rgba(244, 63, 94, 0.1)', padding: '2px 6px', borderRadius: '4px' }}>
+                  KO: {mKo}
+                </span>
+                <span style={{ marginLeft: 'auto', background: '#f43f5e', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: 'bold' }}>
+                  CSL1
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* PLANTILLA OCULTA PARA CAPTURA HTML2CANVAS */}
       <div 
         ref={printSheetRef}
@@ -1324,6 +1634,41 @@ ${incidentsNotes || 'Ninguna.'}`;
                       <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>
                         {r.code}
                         {m.is_csl1 && <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold', marginLeft: '5px' }}>CSL1</span>}
+                      </td>
+                      <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{r.quantity_ok}</td>
+                      <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{r.quantity_ko > 0 ? r.quantity_ko : ''}</td>
+                      <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold' }}>{m.operator_number}</td>
+                      <td style={{ border: '1px solid #000', padding: '5px' }}>{m.operator_name}</td>
+                    </tr>
+                  ))
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+
+        {revisionEntries.length > 0 && (
+          <>
+            <div style={{ background: '#000', color: '#fff', padding: '4px 8px', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase', marginBottom: '6px' }}>
+              REVISIÓN CSL1
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', marginBottom: '16px' }}>
+              <thead>
+                <tr style={{ background: '#e2e8f0' }}>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>PIEZA / REF</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD OK</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '70px' }}>PROD KO</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'center', width: '60px' }}>Nº OP</th>
+                  <th style={{ border: '1px solid #000', padding: '6px', textAlign: 'left' }}>OPERARIO</th>
+                </tr>
+              </thead>
+              <tbody>
+                {revisionEntries.map(m => (
+                  (m.references || []).map((r, rIdx) => (
+                    <tr key={`${m.id}-${r.id}`}>
+                      <td style={{ border: '1px solid #000', padding: '5px', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                        {r.code}
+                        <span style={{ background: '#f43f5e', color: '#fff', padding: '1px 4px', borderRadius: '3px', fontSize: '9px', fontWeight: 'bold', marginLeft: '5px' }}>CSL1</span>
                       </td>
                       <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', fontWeight: 'bold', color: '#15803d' }}>{r.quantity_ok}</td>
                       <td style={{ border: '1px solid #000', padding: '5px', textAlign: 'center', color: '#b91c1c' }}>{r.quantity_ko > 0 ? r.quantity_ko : ''}</td>

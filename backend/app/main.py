@@ -238,6 +238,11 @@ def startup_event():
         except Exception:
             db.rollback()
         try:
+            db.execute(text("ALTER TABLE machines ADD COLUMN assigned_part_id INTEGER REFERENCES parts(id) ON DELETE SET NULL"))
+            db.commit()
+        except Exception:
+            db.rollback()
+        try:
             db.execute(text("ALTER TABLE operators ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
             db.commit()
         except Exception:
@@ -473,7 +478,7 @@ def delete_part(part_id: int, db: Session = Depends(get_db), current_user: User 
 
 @app.get("/api/machines", response_model=List[MachineResponse])
 def get_machines(db: Session = Depends(get_db)):
-    return db.query(Machine).order_by(Machine.id.asc()).all()
+    return db.query(Machine).options(joinedload(Machine.assigned_part)).order_by(Machine.id.asc()).all()
 
 @app.post("/api/machines", response_model=MachineResponse, status_code=status.HTTP_201_CREATED)
 def create_machine(machine: MachineCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -483,12 +488,12 @@ def create_machine(machine: MachineCreate, db: Session = Depends(get_db), curren
         category=machine.category,
         location=machine.location,
         status=machine.status or "disponible",
-        is_small=machine.is_small or False
+        is_small=machine.is_small or False,
+        assigned_part_id=machine.assigned_part_id
     )
     db.add(db_mac)
     db.commit()
-    db.refresh(db_mac)
-    return db_mac
+    return db.query(Machine).options(joinedload(Machine.assigned_part)).filter(Machine.id == db_mac.id).first()
 
 @app.put("/api/machines/{machine_id}", response_model=MachineResponse)
 def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -502,9 +507,9 @@ def update_machine(machine_id: int, payload: MachineCreate, db: Session = Depend
     if payload.status:
         mac.status = payload.status
     mac.is_small = payload.is_small if payload.is_small is not None else False
+    mac.assigned_part_id = payload.assigned_part_id
     db.commit()
-    db.refresh(mac)
-    return mac
+    return db.query(Machine).options(joinedload(Machine.assigned_part)).filter(Machine.id == machine_id).first()
 
 @app.patch("/api/machines/{machine_id}/status", response_model=MachineResponse)
 def update_machine_status(machine_id: int, payload: MachineStatusUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -513,8 +518,7 @@ def update_machine_status(machine_id: int, payload: MachineStatusUpdate, db: Ses
         raise HTTPException(status_code=404, detail="Máquina no encontrada.")
     machine.status = payload.status
     db.commit()
-    db.refresh(machine)
-    return machine
+    return db.query(Machine).options(joinedload(Machine.assigned_part)).filter(Machine.id == machine_id).first()
 
 @app.delete("/api/machines/{machine_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_machine(machine_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -553,6 +557,9 @@ def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db),
     db.add(sheet)
     db.commit()
     db.refresh(sheet)
+
+    active_machine_ids = set()
+    machine_part_mapping = {}
 
     for item in payload.items:
         # Resoluciones automáticas si faltan IDs
@@ -600,6 +607,25 @@ def create_shift_sheet(payload: ShiftSheetCreate, db: Session = Depends(get_db),
         )
         db.add(db_item)
 
+        if machine_id and not item.is_montaje and item.machine_name_manual != 'REVISION':
+            active_machine_ids.add(machine_id)
+            if part_id:
+                machine_part_mapping[machine_id] = part_id
+
+    # Actualizar estado de máquinas activas a "en_uso" y guardar su pieza
+    for m_id in active_machine_ids:
+        mac = db.query(Machine).filter(Machine.id == m_id).first()
+        if mac:
+            mac.status = "en_uso"
+            if m_id in machine_part_mapping:
+                mac.assigned_part_id = machine_part_mapping[m_id]
+
+    # Para cualquier otra máquina que esté "en_uso" y no se haya reportado en esta hoja, marcarla como "disponible"
+    other_active_macs = db.query(Machine).filter(Machine.status == "en_uso", ~Machine.id.in_(list(active_machine_ids))).all()
+    for mac in other_active_macs:
+        mac.status = "disponible"
+        mac.assigned_part_id = None
+
     db.commit()
     
     return db.query(ShiftSheet)\
@@ -645,8 +671,9 @@ def get_shift_sheet_html(sheet_id: int, token: Optional[str] = None, db: Session
     if user.role != "supervisor" and sheet.user_id != user.id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este informe de turno.")
 
-    planta_items = [i for i in sheet.items if not i.is_montaje]
+    planta_items = [i for i in sheet.items if not i.is_montaje and i.machine_name_manual != 'REVISION']
     montaje_items = [i for i in sheet.items if i.is_montaje]
+    revision_items = [i for i in sheet.items if i.machine_name_manual == 'REVISION']
 
     def render_row(item):
         mac_name = item.machine.name if item.machine else (item.machine_name_manual or '-')
@@ -670,6 +697,7 @@ def get_shift_sheet_html(sheet_id: int, token: Optional[str] = None, db: Session
 
     planta_rows_html = "".join([render_row(i) for i in planta_items])
     montaje_rows_html = "".join([render_row(i) for i in montaje_items])
+    revision_rows_html = "".join([render_row(i) for i in revision_items])
 
     html_content = f"""
     <!DOCTYPE html>
@@ -734,6 +762,26 @@ def get_shift_sheet_html(sheet_id: int, token: Optional[str] = None, db: Session
                 </tbody>
             </table>
             ''' if montaje_rows_html else ''}
+
+            {f'''
+            <div class="section-title">REVISIÓN CSL1</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 20%;">PIEZA / REF</th>
+                        <th style="width: 8%;">LADO</th>
+                        <th style="width: 25%;">REFERENCIA</th>
+                        <th style="width: 10%;">PROD OK</th>
+                        <th style="width: 10%;">PROD KO</th>
+                        <th style="width: 10%;">Nº OP</th>
+                        <th style="width: 17%;">OPERARIO</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {revision_rows_html if revision_rows_html else '<tr><td colspan="7" style="text-align:center;">Sin filas de revisión</td></tr>'}
+                </tbody>
+            </table>
+            ''' if revision_rows_html else ''}
 
             <div class="notes">
                 <strong>FALTA PERSONAL O NOTAS / INCIDENCIAS:</strong><br/>
