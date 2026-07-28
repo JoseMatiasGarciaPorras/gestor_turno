@@ -13,7 +13,7 @@ from app.schemas import (
     PartCreate, PartResponse,
     ShiftSheetCreate, ShiftSheetResponse,
     SummaryResponse, WeeklySnapshotResponse,
-    UserCreate, UserResponse, Token,
+    UserCreate, UserResponse, Token, UserLogin,
     ActiveMontajeBase, ActiveMontajeResponse,
     ActiveRevisionBase, ActiveRevisionResponse
 )
@@ -315,7 +315,7 @@ def register_user(user: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 @app.post("/api/auth/login", response_model=Token)
-def login_user(payload: UserCreate, db: Session = Depends(get_db)):
+def login_user(payload: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(

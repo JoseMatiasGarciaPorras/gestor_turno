@@ -13,6 +13,10 @@ class UserCreate(UserBase):
     role: Optional[str] = "encargado"
     supervisor_key: Optional[str] = None
 
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
 class UserResponse(UserBase):
     id: int
     role: str
