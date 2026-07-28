@@ -278,6 +278,14 @@ def startup_event():
 
 @app.post("/api/auth/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(user: UserCreate, db: Session = Depends(get_db)):
+    import os
+    expected_reg_key = os.getenv("REGISTRATION_KEY", "planta2026")
+    if user.registration_key != expected_reg_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Clave de registro de planta incorrecta."
+        )
+
     existing_user = db.query(User).filter(User.email == user.email).first()
     if existing_user:
         raise HTTPException(

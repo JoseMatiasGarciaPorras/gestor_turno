@@ -8,6 +8,7 @@ export default function LoginRegisterView({ API_BASE_URL, onLogin }) {
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState('encargado');
   const [supervisorKey, setSupervisorKey] = useState('');
+  const [registrationKey, setRegistrationKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
@@ -16,7 +17,7 @@ export default function LoginRegisterView({ API_BASE_URL, onLogin }) {
     setLoading(true);
     setMessage({ text: '', type: '' });
 
-    if (!email || !password || (!isLogin && !fullName)) {
+    if (!email || !password || (!isLogin && (!fullName || !registrationKey))) {
       setMessage({ text: 'Por favor, rellena todos los campos obligatorios.', type: 'error' });
       setLoading(false);
       return;
@@ -53,6 +54,7 @@ export default function LoginRegisterView({ API_BASE_URL, onLogin }) {
           password, 
           full_name: fullName,
           role,
+          registration_key: registrationKey,
           supervisor_key: role === 'supervisor' ? supervisorKey : null
         };
         
@@ -181,6 +183,23 @@ export default function LoginRegisterView({ API_BASE_URL, onLogin }) {
 
           {!isLogin && (
             <>
+              <div style={{ position: 'relative', textAlign: 'left', marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '600', color: '#60a5fa', marginBottom: '4px' }}>
+                  CLAVE DE REGISTRO DE PLANTA
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="password"
+                    placeholder="Clave de la planta (ej. planta2026)"
+                    className="form-input"
+                    style={{ paddingLeft: '38px', minHeight: '42px', borderColor: '#60a5fa' }}
+                    value={registrationKey}
+                    onChange={(e) => setRegistrationKey(e.target.value)}
+                  />
+                  <Key size={16} color="#60a5fa" style={{ position: 'absolute', left: '12px', top: '13px' }} />
+                </div>
+              </div>
+
               <div style={{ textAlign: 'left' }}>
                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: '600', color: '#94a3b8', marginBottom: '4px' }}>
                   ROL DE CUENTA

@@ -9,6 +9,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    registration_key: str
     role: Optional[str] = "encargado"
     supervisor_key: Optional[str] = None
 
