@@ -716,6 +716,28 @@ export default function App() {
     localStorage.setItem('gestor_parts', JSON.stringify(updated));
   };
 
+  const handleDeleteUser = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        alert("Encargado eliminado con éxito.");
+        await fetchUsers();
+        await fetchData();
+      } else {
+        const data = await res.json();
+        alert(data.detail || "Error al eliminar encargado.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error al conectar con el servidor.");
+    }
+  };
+
   // Handlers CRUD de Máquinas
   const handleCreateMachine = async (machineData) => {
     try {
@@ -890,6 +912,7 @@ export default function App() {
           machines={machines}
           operators={operators}
           parts={parts}
+          users={users}
           onCreateMachine={handleCreateMachine}
           onUpdateMachine={handleUpdateMachine}
           onDeleteMachine={handleDeleteMachine}
@@ -899,6 +922,7 @@ export default function App() {
           onCreatePart={handleCreatePart}
           onUpdatePart={handleUpdatePart}
           onDeletePart={handleDeletePart}
+          onDeleteUser={handleDeleteUser}
         />
       )}
 

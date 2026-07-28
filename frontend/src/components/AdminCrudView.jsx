@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { Cpu, UserCheck, Package, Edit2, Trash2, Plus, X, Check, AlertTriangle } from 'lucide-react';
+import { Cpu, UserCheck, Package, Edit2, Trash2, Plus, X, Check, AlertTriangle, Users } from 'lucide-react';
 import { getNormalizedReferences } from './ShiftProductionSheet';
 
 export default function AdminCrudView({ 
-  machines = [], operators = [], parts = [], 
+  machines = [], operators = [], parts = [], users = [],
   onCreateMachine, onUpdateMachine, onDeleteMachine,
   onCreateOperator, onUpdateOperator, onDeleteOperator,
-  onCreatePart, onUpdatePart, onDeletePart 
+  onCreatePart, onUpdatePart, onDeletePart, onDeleteUser
 }) {
-  const [subTab, setSubTab] = useState('machines'); // 'machines' | 'operators' | 'parts'
+  const [subTab, setSubTab] = useState('machines'); // 'machines' | 'operators' | 'parts' | 'users'
   const [editingItem, setEditingItem] = useState(null); // { type, item }
   const [deletingItem, setDeletingItem] = useState(null); // { type, id, name }
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -84,6 +84,7 @@ export default function AdminCrudView({
     if (type === 'machines') onDeleteMachine(id);
     else if (type === 'operators') onDeleteOperator(id);
     else if (type === 'parts') onDeletePart(id);
+    else if (type === 'users') onDeleteUser(id);
     setDeletingItem(null);
   };
 
@@ -137,6 +138,9 @@ export default function AdminCrudView({
         <button className={`btn ${subTab === 'parts' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, minHeight: '40px', fontSize: '0.8rem' }} onClick={() => setSubTab('parts')}>
           <Package size={15} /> Piezas ({parts.length})
         </button>
+        <button className={`btn ${subTab === 'users' ? 'btn-primary' : 'btn-secondary'}`} style={{ flex: 1, minHeight: '40px', fontSize: '0.8rem' }} onClick={() => setSubTab('users')}>
+          <Users size={15} /> Encargados ({users.length})
+        </button>
       </div>
 
       <div className="section-header">
@@ -144,10 +148,13 @@ export default function AdminCrudView({
           {subTab === 'machines' && 'Gestión CRUD de Máquinas'}
           {subTab === 'operators' && 'Gestión CRUD de Operarios'}
           {subTab === 'parts' && 'Gestión CRUD de Piezas & Referencias'}
+          {subTab === 'users' && 'Gestión de Encargados'}
         </h2>
-        <button className="btn btn-primary" style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={openCreate}>
-          <Plus size={14} /> Crear Nuevo
-        </button>
+        {subTab !== 'users' && (
+          <button className="btn btn-primary" style={{ minHeight: '36px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={openCreate}>
+            <Plus size={14} /> Crear Nuevo
+          </button>
+        )}
       </div>
 
       {/* ITEMS LIST */}
@@ -274,6 +281,22 @@ export default function AdminCrudView({
             </div>
           );
         })}
+
+        {subTab === 'users' && users.map(item => (
+          <div key={item.id} className="history-card">
+            <div>
+              <div style={{ fontWeight: '600', color: '#ffffff', fontSize: '1rem' }}>{item.full_name}</div>
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '2px' }}>
+                Usuario: <strong style={{ color: '#60a5fa' }}>{item.email}</strong> • Rol: <strong style={{ color: '#10b981' }}>{item.role}</strong>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button className="btn btn-danger" style={{ minHeight: '36px', padding: '0 10px' }} onClick={() => setDeletingItem({ type: 'users', id: item.id, name: item.full_name })}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* CREATE & EDIT MODAL */}

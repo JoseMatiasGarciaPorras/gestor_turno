@@ -336,6 +336,22 @@ def get_users(db: Session = Depends(get_db), current_user: User = Depends(get_cu
         raise HTTPException(status_code=403, detail="Acceso denegado: Se requieren permisos de supervisor.")
     return db.query(User).filter(User.role == "encargado").order_by(User.full_name.asc()).all()
 
+@app.delete("/api/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role != "supervisor":
+        raise HTTPException(status_code=403, detail="Acceso denegado: Se requieren permisos de supervisor.")
+    
+    user_to_delete = db.query(User).filter(User.id == user_id).first()
+    if not user_to_delete:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+        
+    if user_to_delete.role == "supervisor":
+        raise HTTPException(status_code=400, detail="No puedes eliminar a un supervisor.")
+        
+    db.delete(user_to_delete)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 # --- OPERARIOS ---
 
 @app.get("/api/operators", response_model=List[OperatorResponse])
