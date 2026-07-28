@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -6,14 +6,16 @@ from typing import List, Optional
 from datetime import datetime, date
 
 from app.database import engine, Base, get_db
-from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot, User, UserOperatorActive
+from app.models import Machine, Operator, Part, PartReference, ShiftSheet, ProductionItem, WeeklySnapshot, User, UserOperatorActive, ActiveMontaje, ActiveRevision
 from app.schemas import (
     MachineCreate, MachineResponse, MachineStatusUpdate,
     OperatorCreate, OperatorResponse,
     PartCreate, PartResponse,
     ShiftSheetCreate, ShiftSheetResponse,
     SummaryResponse, WeeklySnapshotResponse,
-    UserCreate, UserResponse, Token
+    UserCreate, UserResponse, Token,
+    ActiveMontajeBase, ActiveMontajeResponse,
+    ActiveRevisionBase, ActiveRevisionResponse
 )
 from app.auth import get_current_user, hash_password, verify_password, create_access_token
 
@@ -867,3 +869,69 @@ def get_weekly_snapshot(snapshot_id: int, db: Session = Depends(get_db), current
         raise HTTPException(status_code=403, detail="No tienes acceso a esta instantánea semanal.")
         
     return snapshot
+
+
+# --- ACTIVE MONTAJES ENDPOINTS ---
+@app.get("/api/active-montajes", response_model=List[ActiveMontajeResponse])
+def get_active_montajes(db: Session = Depends(get_db)):
+    return db.query(ActiveMontaje).options(joinedload(ActiveMontaje.part)).all()
+
+@app.post("/api/active-montajes", response_model=ActiveMontajeResponse, status_code=status.HTTP_201_CREATED)
+def create_active_montaje(item: ActiveMontajeBase, db: Session = Depends(get_db)):
+    db_item = ActiveMontaje(part_id=item.part_id)
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db.query(ActiveMontaje).options(joinedload(ActiveMontaje.part)).filter(ActiveMontaje.id == db_item.id).first()
+
+@app.put("/api/active-montajes/{id}", response_model=ActiveMontajeResponse)
+def update_active_montaje(id: int, item: ActiveMontajeBase, db: Session = Depends(get_db)):
+    db_item = db.query(ActiveMontaje).filter(ActiveMontaje.id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Active montaje not found")
+    db_item.part_id = item.part_id
+    db.commit()
+    db.refresh(db_item)
+    return db.query(ActiveMontaje).options(joinedload(ActiveMontaje.part)).filter(ActiveMontaje.id == db_item.id).first()
+
+@app.delete("/api/active-montajes/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_active_montaje(id: int, db: Session = Depends(get_db)):
+    db_item = db.query(ActiveMontaje).filter(ActiveMontaje.id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Active montaje not found")
+    db.delete(db_item)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- ACTIVE REVISIONS ENDPOINTS ---
+@app.get("/api/active-revisions", response_model=List[ActiveRevisionResponse])
+def get_active_revisions(db: Session = Depends(get_db)):
+    return db.query(ActiveRevision).options(joinedload(ActiveRevision.part)).all()
+
+@app.post("/api/active-revisions", response_model=ActiveRevisionResponse, status_code=status.HTTP_201_CREATED)
+def create_active_revision(item: ActiveRevisionBase, db: Session = Depends(get_db)):
+    db_item = ActiveRevision(part_id=item.part_id)
+    db.add(db_item)
+    db.commit()
+    db.refresh(db_item)
+    return db.query(ActiveRevision).options(joinedload(ActiveRevision.part)).filter(ActiveRevision.id == db_item.id).first()
+
+@app.put("/api/active-revisions/{id}", response_model=ActiveRevisionResponse)
+def update_active_revision(id: int, item: ActiveRevisionBase, db: Session = Depends(get_db)):
+    db_item = db.query(ActiveRevision).filter(ActiveRevision.id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Active revision not found")
+    db_item.part_id = item.part_id
+    db.commit()
+    db.refresh(db_item)
+    return db.query(ActiveRevision).options(joinedload(ActiveRevision.part)).filter(ActiveRevision.id == db_item.id).first()
+
+@app.delete("/api/active-revisions/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_active_revision(id: int, db: Session = Depends(get_db)):
+    db_item = db.query(ActiveRevision).filter(ActiveRevision.id == id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Active revision not found")
+    db.delete(db_item)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

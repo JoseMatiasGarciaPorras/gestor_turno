@@ -172,4 +172,25 @@ class WeeklySnapshotResponse(BaseModel):
         from_attributes = True
 
 
+class ActiveMontajeBase(BaseModel):
+    part_id: int
+
+class ActiveMontajeResponse(ActiveMontajeBase):
+    id: int
+    part: Optional[PartResponse] = None
+
+    class Config:
+        from_attributes = True
+
+class ActiveRevisionBase(BaseModel):
+    part_id: int
+
+class ActiveRevisionResponse(ActiveRevisionBase):
+    id: int
+    part: Optional[PartResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
 

@@ -68,7 +68,10 @@ export function getNormalizedReferences(part) {
 }
 
 export default function ShiftProductionSheet({ 
-  machines = [], operators = [], parts = [], currentSheet, onSaveSheet, onOpenHtmlReport, onUpdateMachine, currentUser
+  machines = [], operators = [], parts = [], currentSheet, onSaveSheet, onOpenHtmlReport, onUpdateMachine, currentUser,
+  activeMontajes = [], activeRevisions = [],
+  onAddActiveMontaje, onUpdateActiveMontaje, onDeleteActiveMontaje,
+  onAddActiveRevision, onUpdateActiveRevision, onDeleteActiveRevision
 }) {
   const printSheetRef = useRef(null);
   const initialDraftRef = useRef(loadSavedDraft());
@@ -120,6 +123,127 @@ export default function ShiftProductionSheet({
       }
     }
   }, [currentUser]);
+
+  // Sincronizar activeMontajes con montajeEntries
+  const prevMontajesRef = useRef(activeMontajes);
+  useEffect(() => {
+    const prevMontajes = prevMontajesRef.current;
+    if (activeMontajes.length > prevMontajes.length) {
+      // Un nuevo montaje fue añadido, buscar el ID y abrir modal
+      const newAdded = activeMontajes.find(item => !prevMontajes.some(p => p.id === item.id));
+      if (newAdded) {
+        setEditingEntry({ type: 'montaje', id: newAdded.id });
+      }
+    }
+    prevMontajesRef.current = activeMontajes;
+
+    if (activeMontajes.length > 0) {
+      setMontajeEntries(prevEntries => {
+        const newEntries = activeMontajes.map(item => {
+          const existing = prevEntries.find(e => e.id === item.id || e.part_name === item.part?.name);
+          const partName = item.part?.name || '';
+          
+          if (existing) {
+            if (existing.part_name !== partName) {
+              const normRefs = getNormalizedReferences(item.part);
+              const newSubRefs = normRefs.length > 0 
+                ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+                : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+              return {
+                ...existing,
+                id: item.id,
+                part_name: partName,
+                references: newSubRefs
+              };
+            }
+            return { ...existing, id: item.id };
+          } else {
+            const normRefs = getNormalizedReferences(item.part);
+            const subRefs = normRefs.length > 0
+              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+              : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+            
+            const activeOps = operators.filter(o => o.is_active !== false);
+            const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
+
+            return {
+              id: item.id,
+              part_name: partName,
+              operator_name: defaultOp.name,
+              operator_number: defaultOp.operator_number,
+              is_montaje: true,
+              is_csl1: false,
+              references: subRefs
+            };
+          }
+        });
+        return newEntries;
+      });
+    } else {
+      setMontajeEntries([]);
+    }
+  }, [activeMontajes]);
+
+  // Sincronizar activeRevisions con revisionEntries
+  const prevRevisionsRef = useRef(activeRevisions);
+  useEffect(() => {
+    const prevRevisions = prevRevisionsRef.current;
+    if (activeRevisions.length > prevRevisions.length) {
+      // Una nueva revisión fue añadida, buscar el ID y abrir modal
+      const newAdded = activeRevisions.find(item => !prevRevisions.some(p => p.id === item.id));
+      if (newAdded) {
+        setEditingEntry({ type: 'revision', id: newAdded.id });
+      }
+    }
+    prevRevisionsRef.current = activeRevisions;
+
+    if (activeRevisions.length > 0) {
+      setRevisionEntries(prevEntries => {
+        const newEntries = activeRevisions.map(item => {
+          const existing = prevEntries.find(e => e.id === item.id || e.part_name === item.part?.name);
+          const partName = item.part?.name || '';
+          
+          if (existing) {
+            if (existing.part_name !== partName) {
+              const normRefs = getNormalizedReferences(item.part);
+              const newSubRefs = normRefs.length > 0 
+                ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+                : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+              return {
+                ...existing,
+                id: item.id,
+                part_name: partName,
+                references: newSubRefs
+              };
+            }
+            return { ...existing, id: item.id };
+          } else {
+            const normRefs = getNormalizedReferences(item.part);
+            const subRefs = normRefs.length > 0
+              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+              : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+            
+            const activeOps = operators.filter(o => o.is_active !== false);
+            const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
+
+            return {
+              id: item.id,
+              part_name: partName,
+              operator_name: defaultOp.name,
+              operator_number: defaultOp.operator_number,
+              is_montaje: false,
+              is_revision: true,
+              is_csl1: true,
+              references: subRefs
+            };
+          }
+        });
+        return newEntries;
+      });
+    } else {
+      setRevisionEntries([]);
+    }
+  }, [activeRevisions]);
 
   // Sincronizar machineEntries con el estado machines de la base de datos
   useEffect(() => {
@@ -409,35 +533,16 @@ export default function ShiftProductionSheet({
 
   // Montaje Handlers
   const addMontajeEntry = () => {
-    const activeOps = operators.filter(o => o.is_active !== false);
-    const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
-    
     // Find the first assembly part if available
     const montageParts = parts.filter(p => p.is_montaje);
-    const defaultPart = montageParts[0] || parts[0] || { name: 'Pieza Montaje', references_list: [{ code: 'REF-MONTAJE', side_type: 'Única' }] };
-    
-    const normRefs = getNormalizedReferences(defaultPart);
-    const initialSubRefs = normRefs.length > 0 
-      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-      : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-
-    const newId = Date.now();
-    setMontajeEntries([
-      ...montajeEntries,
-      {
-        id: newId,
-        part_name: defaultPart.name,
-        operator_name: defaultOp.name,
-        operator_number: defaultOp.operator_number,
-        is_montaje: true,
-        is_csl1: false,
-        references: initialSubRefs
-      }
-    ]);
-    setEditingEntry({ type: 'montaje', id: newId });
+    const defaultPart = montageParts[0] || parts[0];
+    if (defaultPart) {
+      onAddActiveMontaje(defaultPart.id);
+    }
   };
 
   const removeMontajeEntry = (id) => {
+    onDeleteActiveMontaje(id);
     setMontajeEntries(montajeEntries.filter(m => m.id !== id));
   };
 
@@ -456,6 +561,8 @@ export default function ShiftProductionSheet({
   };
 
   const selectPartForMontaje = (entryId, selectedPart) => {
+    onUpdateActiveMontaje(entryId, selectedPart.id);
+
     const normRefs = getNormalizedReferences(selectedPart);
     const newSubRefs = normRefs.length > 0 
       ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
@@ -506,35 +613,15 @@ export default function ShiftProductionSheet({
 
   // Revision Handlers
   const addRevisionEntry = () => {
-    const activeOps = operators.filter(o => o.is_active !== false);
-    const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
-    
     // Cualquiera de las piezas de la lista (primera pieza)
-    const defaultPart = parts[0] || { name: 'Pieza Revisión', references_list: [{ code: 'REF-REVISION', side_type: 'Única' }] };
-    
-    const normRefs = getNormalizedReferences(defaultPart);
-    const initialSubRefs = normRefs.length > 0 
-      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-      : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-
-    const newId = Date.now();
-    setRevisionEntries([
-      ...revisionEntries,
-      {
-        id: newId,
-        part_name: defaultPart.name,
-        operator_name: defaultOp.name,
-        operator_number: defaultOp.operator_number,
-        is_montaje: false,
-        is_revision: true,
-        is_csl1: true,
-        references: initialSubRefs
-      }
-    ]);
-    setEditingEntry({ type: 'revision', id: newId });
+    const defaultPart = parts[0];
+    if (defaultPart) {
+      onAddActiveRevision(defaultPart.id);
+    }
   };
 
   const removeRevisionEntry = (id) => {
+    onDeleteActiveRevision(id);
     setRevisionEntries(revisionEntries.filter(m => m.id !== id));
   };
 
@@ -553,6 +640,8 @@ export default function ShiftProductionSheet({
   };
 
   const selectPartForRevision = (entryId, selectedPart) => {
+    onUpdateActiveRevision(entryId, selectedPart.id);
+
     const normRefs = getNormalizedReferences(selectedPart);
     const newSubRefs = normRefs.length > 0 
       ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))

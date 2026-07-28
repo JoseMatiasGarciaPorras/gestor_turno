@@ -130,3 +130,21 @@ class UserOperatorActive(Base):
     operator_id = Column(Integer, ForeignKey("operators.id", ondelete="CASCADE"), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
+
+class ActiveMontaje(Base):
+    __tablename__ = "active_montajes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    part_id = Column(Integer, ForeignKey("parts.id", ondelete="CASCADE"), nullable=False)
+
+    part = relationship("Part")
+
+
+class ActiveRevision(Base):
+    __tablename__ = "active_revisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    part_id = Column(Integer, ForeignKey("parts.id", ondelete="CASCADE"), nullable=False)
+
+    part = relationship("Part")
+

@@ -171,6 +171,8 @@ export default function App() {
   const [operators, setOperators] = useState([]);
   const [parts, setParts] = useState([]);
   const [shiftSheets, setShiftSheets] = useState([]);
+  const [activeMontajes, setActiveMontajes] = useState([]);
+  const [activeRevisions, setActiveRevisions] = useState([]);
   const [currentSheet, setCurrentSheet] = useState(null);
   const [weeklyHistory, setWeeklyHistory] = useState(null);
   const [weeklySnapshots, setWeeklySnapshots] = useState([]);
@@ -243,18 +245,25 @@ export default function App() {
     setLoading(true);
     const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
     try {
-      const [resMac, resOp, resParts, resSheets] = await Promise.all([
+      const [resMac, resOp, resParts, resSheets, resActiveMontajes, resActiveRevisions] = await Promise.all([
         fetch(`${API_BASE_URL}/machines`),
         fetch(`${API_BASE_URL}/operators`, { headers: authHeaders }),
         fetch(`${API_BASE_URL}/parts`),
-        fetch(`${API_BASE_URL}/shift-sheets`, { headers: authHeaders })
+        fetch(`${API_BASE_URL}/shift-sheets`, { headers: authHeaders }),
+        fetch(`${API_BASE_URL}/active-montajes`),
+        fetch(`${API_BASE_URL}/active-revisions`)
       ]);
 
-      if (resMac.ok && resOp.ok && resParts.ok && resSheets.ok) {
+      if (resMac.ok && resOp.ok && resParts.ok && resSheets.ok && resActiveMontajes.ok && resActiveRevisions.ok) {
         const macsData = await resMac.json();
         const opsData = await resOp.json();
         const partsData = await resParts.json();
         const sheetsData = await resSheets.json();
+        const activeMontajesData = await resActiveMontajes.json();
+        const activeRevisionsData = await resActiveRevisions.json();
+
+        setActiveMontajes(activeMontajesData);
+        setActiveRevisions(activeRevisionsData);
 
         // Fusionar datos de la API con los locales offline para evitar pérdidas de CRUD locales
         const cachedMacRaw = localStorage.getItem('gestor_machines');
@@ -393,6 +402,94 @@ export default function App() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  // active-montajes CRUD
+  const handleAddActiveMontaje = async (partId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/active-montajes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ part_id: partId })
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.warn("Error adding active montage:", e);
+    }
+  };
+
+  const handleUpdateActiveMontaje = async (id, partId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/active-montajes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ part_id: partId })
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.warn("Error updating active montage:", e);
+    }
+  };
+
+  const handleDeleteActiveMontaje = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/active-montajes/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.warn("Error deleting active montage:", e);
+    }
+  };
+
+  // active-revisions CRUD
+  const handleAddActiveRevision = async (partId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/active-revisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ part_id: partId })
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.warn("Error adding active revision:", e);
+    }
+  };
+
+  const handleUpdateActiveRevision = async (id, partId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/active-revisions/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ part_id: partId })
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.warn("Error updating active revision:", e);
+    }
+  };
+
+  const handleDeleteActiveRevision = async (id) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/active-revisions/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        await fetchData();
+      }
+    } catch (e) {
+      console.warn("Error deleting active revision:", e);
+    }
+  };
 
   // Guardar Parte de Turno
   const handleSaveSheet = async (sheetPayload) => {
@@ -748,6 +845,14 @@ export default function App() {
           onOpenHtmlReport={handleOpenHtmlReport}
           onUpdateMachine={handleUpdateMachine}
           currentUser={currentUser}
+          activeMontajes={activeMontajes}
+          activeRevisions={activeRevisions}
+          onAddActiveMontaje={handleAddActiveMontaje}
+          onUpdateActiveMontaje={handleUpdateActiveMontaje}
+          onDeleteActiveMontaje={handleDeleteActiveMontaje}
+          onAddActiveRevision={handleAddActiveRevision}
+          onUpdateActiveRevision={handleUpdateActiveRevision}
+          onDeleteActiveRevision={handleDeleteActiveRevision}
         />
       )}
 
