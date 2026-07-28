@@ -222,10 +222,22 @@ export default function ShiftProductionSheet({
     setIncidentsNotes('Operación en planta sin novedades.');
     setMachineEntries(prev => prev.map(m => ({
       ...m,
-      references: m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 }))
+      references: (m.references || []).map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 }))
     })));
-    setMontajeEntries(prev => prev.map(m => ({ ...m, quantity_ok: 0, quantity_ko: 0, is_csl1: false })));
-    setRevisionEntries(prev => prev.map(m => ({ ...m, references: m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 })) })));
+    setMontajeEntries(prev => prev.map(m => {
+      const updated = { ...m, quantity_ok: 0, quantity_ko: 0, is_csl1: false };
+      if (Array.isArray(m.references)) {
+        updated.references = m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 }));
+      }
+      return updated;
+    }));
+    setRevisionEntries(prev => prev.map(m => {
+      const updated = { ...m, quantity_ok: 0, quantity_ko: 0 };
+      if (Array.isArray(m.references)) {
+        updated.references = m.references.map(r => ({ ...r, quantity_ok: 0, quantity_ko: 0 }));
+      }
+      return updated;
+    }));
     setShowConfirmReset(false);
   };
 
