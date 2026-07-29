@@ -140,15 +140,15 @@ export default function ShiftProductionSheet({
     if (activeMontajes.length > 0) {
       setMontajeEntries(prevEntries => {
         const newEntries = activeMontajes.map(item => {
-          const existing = prevEntries.find(e => e.id === item.id || e.part_name === item.part?.name);
+          const existing = prevEntries.find(e => e.id === item.id);
           const partName = item.part?.name || '';
           
           if (existing) {
             if (existing.part_name !== partName) {
               const normRefs = getNormalizedReferences(item.part);
               const newSubRefs = normRefs.length > 0 
-                ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-                : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+                ? normRefs.map((r, idx) => ({ id: Date.now() + idx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+                : [{ id: Date.now() + Math.random(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
               return {
                 ...existing,
                 id: item.id,
@@ -160,8 +160,8 @@ export default function ShiftProductionSheet({
           } else {
             const normRefs = getNormalizedReferences(item.part);
             const subRefs = normRefs.length > 0
-              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-              : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+              : [{ id: Date.now() + Math.random(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
             
             const activeOps = operators.filter(o => o.is_active !== false);
             const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
@@ -200,15 +200,15 @@ export default function ShiftProductionSheet({
     if (activeRevisions.length > 0) {
       setRevisionEntries(prevEntries => {
         const newEntries = activeRevisions.map(item => {
-          const existing = prevEntries.find(e => e.id === item.id || e.part_name === item.part?.name);
+          const existing = prevEntries.find(e => e.id === item.id);
           const partName = item.part?.name || '';
           
           if (existing) {
             if (existing.part_name !== partName) {
               const normRefs = getNormalizedReferences(item.part);
               const newSubRefs = normRefs.length > 0 
-                ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-                : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+                ? normRefs.map((r, idx) => ({ id: Date.now() + idx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+                : [{ id: Date.now() + Math.random(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
               return {
                 ...existing,
                 id: item.id,
@@ -220,8 +220,8 @@ export default function ShiftProductionSheet({
           } else {
             const normRefs = getNormalizedReferences(item.part);
             const subRefs = normRefs.length > 0
-              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-              : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+              : [{ id: Date.now() + Math.random(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
             
             const activeOps = operators.filter(o => o.is_active !== false);
             const defaultOp = activeOps[0] || operators[0] || { name: 'Natalia', operator_number: '247' };
@@ -245,52 +245,33 @@ export default function ShiftProductionSheet({
     }
   }, [activeRevisions]);
 
-  // Sincronizar machineEntries con el estado machines de la base de datos
+  // Cargar máquinas activas inicialmente si no hay borrador y el listado de máquinas está disponible
+  const isInitializedRef = useRef(false);
   useEffect(() => {
-    if (machines.length > 0) {
+    if (machines.length > 0 && !isInitializedRef.current && machineEntries.length === 0 && !initialDraft) {
       const activeMacs = machines.filter(m => m.status === 'en_uso');
-      
-      setMachineEntries(prevEntries => {
-        const newEntries = activeMacs.map(mac => {
-          const existing = prevEntries.find(e => e.id === mac.id || e.machine_name === mac.name);
-          const assignedPartName = mac.assigned_part?.name || '';
-          
-          if (existing) {
-            if (existing.part_name !== assignedPartName) {
-              const normRefs = getNormalizedReferences(mac.assigned_part);
-              const newSubRefs = normRefs.length > 0 
-                ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-                : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-              return {
-                ...existing,
-                id: mac.id,
-                part_name: assignedPartName,
-                references: newSubRefs
-              };
-            }
-            return { ...existing, id: mac.id };
-          } else {
-            const assignedPart = mac.assigned_part;
-            const normRefs = getNormalizedReferences(assignedPart);
-            const subRefs = normRefs.length > 0
-              ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-              : [{ id: Date.now(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-            
-            return {
-              id: mac.id,
-              machine_name: mac.name,
-              part_name: assignedPartName,
-              operator_name: '',
-              operator_number: '',
-              is_montaje: false,
-              references: subRefs
-            };
-          }
-        });
-        return newEntries;
+      const initialEntries = activeMacs.map(mac => {
+        const assignedPart = mac.assigned_part;
+        const normRefs = getNormalizedReferences(assignedPart);
+        const subRefs = normRefs.length > 0
+          ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+          : [{ id: Date.now() + Math.random(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
+        
+        return {
+          id: Date.now() + Math.random(), // Unique local entry ID
+          machine_id: mac.id,
+          machine_name: mac.name,
+          part_name: assignedPart?.name || '',
+          operator_name: '',
+          operator_number: '',
+          is_montaje: false,
+          references: subRefs
+        };
       });
+      setMachineEntries(initialEntries);
+      isInitializedRef.current = true;
     }
-  }, [machines]);
+  }, [machines, initialDraft]);
 
   // Persistir el borrador automáticamente ante cualquier cambio
   useEffect(() => {
@@ -367,43 +348,37 @@ export default function ShiftProductionSheet({
 
   // Añadir nueva Máquina
   const addMachineEntry = () => {
-    // Buscar una máquina que no esté ya activa
-    const activeNames = machineEntries.map(e => e.machine_name);
-    const availableMac = machines.find(m => m.status !== 'en_uso' && !activeNames.includes(m.name)) || 
-                         machines.find(m => !activeNames.includes(m.name)) || 
-                         machines[0];
+    // Sugerir por defecto una máquina que no esté ya en la lista
+    const activeMachineIds = machineEntries.map(e => e.machine_id);
+    const availableMac = machines.find(m => !activeMachineIds.includes(m.id)) || machines[0];
     
-    if (!availableMac) return;
+    if (!availableMac) {
+      alert("No hay máquinas registradas en el sistema.");
+      return;
+    }
 
     const defaultPart = parts[0];
+    const normRefs = getNormalizedReferences(defaultPart);
+    const subRefs = normRefs.length > 0
+      ? normRefs.map((r, rIdx) => ({ id: Date.now() + rIdx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now() + Math.random(), code: '', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
 
-    // Marcar en uso en la base de datos
-    onUpdateMachine(availableMac.id, {
-      name: availableMac.name,
-      machine_number: availableMac.machine_number,
-      category: availableMac.category,
-      location: availableMac.location,
-      is_small: availableMac.is_small,
-      status: 'en_uso',
-      assigned_part_id: defaultPart ? defaultPart.id : null
-    });
+    const newEntry = {
+      id: Date.now() + Math.random(), // Unique local ID
+      machine_id: availableMac.id,
+      machine_name: availableMac.name,
+      part_name: defaultPart ? defaultPart.name : '',
+      operator_name: '',
+      operator_number: '',
+      is_montaje: false,
+      references: subRefs
+    };
 
-    setEditingEntry({ type: 'machine', id: availableMac.id });
+    setMachineEntries(prev => [...prev, newEntry]);
+    setEditingEntry({ type: 'machine', id: newEntry.id });
   };
 
   const removeMachineEntry = (id) => {
-    const mac = machines.find(m => m.id === id);
-    if (mac) {
-      onUpdateMachine(id, {
-        name: mac.name,
-        machine_number: mac.machine_number,
-        category: mac.category,
-        location: mac.location,
-        is_small: mac.is_small,
-        status: 'disponible',
-        assigned_part_id: null
-      });
-    }
     setMachineEntries(prev => prev.filter(m => m.id !== id));
   };
 
@@ -416,7 +391,7 @@ export default function ShiftProductionSheet({
       const operatorNumber = matchedOp ? matchedOp.operator_number : '';
 
       // Comprobar si la máquina que se está editando pertenece al grupo de Máquinas Pequeñas
-      const currentMac = machines.find(mac => mac.name === entryToUpdate.machine_name);
+      const currentMac = machines.find(mac => mac.id === entryToUpdate.machine_id);
       const isCurrentMacSmall = currentMac ? !!currentMac.is_small : false;
 
       setMachineEntries(prev => prev.map(m => {
@@ -425,7 +400,7 @@ export default function ShiftProductionSheet({
         }
         // Si la máquina modificada es pequeña, sincronizar con todas las demás máquinas pequeñas activas
         if (isCurrentMacSmall) {
-          const macDetails = machines.find(mac => mac.name === m.machine_name);
+          const macDetails = machines.find(mac => mac.id === m.machine_id);
           if (macDetails && macDetails.is_small) {
             return { ...m, operator_name: value, operator_number: operatorNumber };
           }
@@ -433,35 +408,18 @@ export default function ShiftProductionSheet({
         return m;
       }));
     } else if (field === 'machine_name') {
-      const oldMac = machines.find(m => m.id === id);
       const targetMacDetails = machines.find(mac => mac.name === value);
-      
-      if (oldMac && targetMacDetails) {
-        const currentPart = parts.find(p => p.name === entryToUpdate.part_name);
-        
-        // Liberar la máquina anterior
-        onUpdateMachine(oldMac.id, {
-          name: oldMac.name,
-          machine_number: oldMac.machine_number,
-          category: oldMac.category,
-          location: oldMac.location,
-          is_small: oldMac.is_small,
-          status: 'disponible',
-          assigned_part_id: null
-        });
-
-        // Ocupar la nueva máquina
-        onUpdateMachine(targetMacDetails.id, {
-          name: targetMacDetails.name,
-          machine_number: targetMacDetails.machine_number,
-          category: targetMacDetails.category,
-          location: targetMacDetails.location,
-          is_small: targetMacDetails.is_small,
-          status: 'en_uso',
-          assigned_part_id: currentPart ? currentPart.id : null
-        });
-
-        setEditingEntry({ type: 'machine', id: targetMacDetails.id });
+      if (targetMacDetails) {
+        setMachineEntries(prev => prev.map(m => {
+          if (m.id === id) {
+            return { 
+              ...m, 
+              machine_id: targetMacDetails.id, 
+              machine_name: targetMacDetails.name 
+            };
+          }
+          return m;
+        }));
       }
     } else {
       setMachineEntries(prev => prev.map(m => (m.id === id ? { ...m, [field]: value } : m)));
@@ -469,27 +427,14 @@ export default function ShiftProductionSheet({
   };
 
   // Seleccionar Pieza para una Máquina y auto-cargar TODAS sus referencias
-  const selectPartForMachine = (machineId, selectedPart) => {
+  const selectPartForMachine = (entryLocalId, selectedPart) => {
     const normRefs = getNormalizedReferences(selectedPart);
     const newSubRefs = normRefs.length > 0 
-      ? normRefs.map((r, idx) => ({ id: Date.now() + idx, code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
-      : [{ id: Date.now(), code: 'REF-MANUAL', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
-
-    const mac = machines.find(m => m.id === machineId);
-    if (mac) {
-      onUpdateMachine(machineId, {
-        name: mac.name,
-        machine_number: mac.machine_number,
-        category: mac.category,
-        location: mac.location,
-        is_small: mac.is_small,
-        status: 'en_uso',
-        assigned_part_id: selectedPart.id
-      });
-    }
+      ? normRefs.map((r, idx) => ({ id: Date.now() + idx + Math.random(), code: r.code, side_type: r.side_type, quantity_ok: 0, quantity_ko: 0 }))
+      : [{ id: Date.now() + Math.random(), code: 'REF-MANUAL', side_type: 'Única', quantity_ok: 0, quantity_ko: 0 }];
 
     setMachineEntries(machineEntries.map(m => {
-      if (m.id === machineId) {
+      if (m.id === entryLocalId) {
         return {
           ...m,
           part_name: selectedPart.name,
